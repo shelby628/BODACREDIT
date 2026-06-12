@@ -58,7 +58,7 @@ export default function LandingPage() {
   const [scrolled,  setScrolled]  = useState(false);
 
   useEffect(() => {
-    fetch(`${import.meta.env.VITE_API_URL}/health`)
+    fetch("https://bodacredit.onrender.com/health")
       .then((r) => r.json())
       .then(() => setApiStatus("online"))
       .catch(() => setApiStatus("offline"));

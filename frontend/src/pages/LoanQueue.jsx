@@ -104,10 +104,18 @@ export default function LoanQueue() {
   };
 
   return (
-    <div className="min-h-screen flex bg-[#f4f6f4] text-gray-900">
-
+  <div className="min-h-screen flex flex-col md:flex-row bg-[#f4f6f4] text-gray-900">
+{/* MOBILE HEADER */}
+<div className="md:hidden flex items-center justify-between px-4 py-3 text-white flex-shrink-0 bg-[#111827]">
+  <h1 className="text-lg font-bold text-[#235347]">BodaCredit</h1>
+  <Link to="/new-application"
+    className="text-xs px-3 py-1.5 rounded-lg text-white no-underline"
+    style={{ backgroundColor: "#235347" }}>
+    + New
+  </Link>
+</div>
       {/* SIDEBAR */}
-      <aside className="w-64 bg-[#111827] text-white p-5 flex-shrink-0 flex flex-col">
+      <aside className="hidden md:flex md:w-64 bg-[#111827] text-white p-5 flex-shrink-0 flex-col">
         <h1 className="text-2xl font-bold text-[#235347]">BodaCredit</h1>
         <div className="mt-10 space-y-2 text-sm">
           <div className="px-3 py-2 rounded bg-[#235347] font-medium">Loan Queue</div>
@@ -268,7 +276,7 @@ export default function LoanQueue() {
         </section>
 
         {/* RIGHT — INSPECTOR PANEL */}
-        <aside className="w-96 bg-white border-l border-gray-100 p-6
+        <aside className="w-full md:w-96 bg-white border-l border-gray-100 p-6
                           overflow-y-auto flex-shrink-0">
           {!selectedApp ? (
             <div className="flex flex-col items-center justify-center h-full text-gray-400">
