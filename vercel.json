@@ -14,5 +14,13 @@
       "src": "/(.*)",
       "dest": "/frontend/$1"
     }
-  ]
+  ],
+  "env": {
+    "VITE_API_URL": "https://bodacredit.onrender.com"
+  },
+  "build": {
+    "env": {
+      "VITE_API_URL": "https://bodacredit.onrender.com"
+    }
+  }
 }
