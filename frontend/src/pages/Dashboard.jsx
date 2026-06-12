@@ -98,7 +98,7 @@ export default function Dashboard() {
 
   // API health check
   useEffect(() => {
-    fetch("http://localhost:8000/health")
+    fetch(`${import.meta.env.VITE_API_URL}/health`)
       .then((r) => r.json())
       .then(() => setApiOnline(true))
       .catch(() => setApiOnline(false));
