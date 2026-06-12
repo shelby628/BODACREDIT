@@ -1,23 +1,7 @@
 {
-  "version": 2,
-  "builds": [
-    {
-      "src": "frontend/package.json",
-      "use": "@vercel/static-build",
-      "config": {
-        "distDir": "dist"
-      }
-    }
+  "rewrites": [
+    { "source": "/(.*)", "destination": "/index.html" }
   ],
-  "routes": [
-    {
-      "src": "/(.*)",
-      "dest": "/frontend/index.html"
-    }
-  ],
-  "env": {
-    "VITE_API_URL": "https://bodacredit.onrender.com"
-  },
   "build": {
     "env": {
       "VITE_API_URL": "https://bodacredit.onrender.com"
