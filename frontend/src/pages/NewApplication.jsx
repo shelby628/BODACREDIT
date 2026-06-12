@@ -1,10 +1,38 @@
-import { useState, useEffect, useRef } from "react";
-import { Link, useNavigate } from "react-router-dom";
-import { getAllLoans, getAllRiders } from "../utils/loanStore";
-import { useAuth } from "../context/AuthContext";
+import { useState, Component, useEffect } from "react";
+import { Link } from "react-router-dom";
+import { useLoanContext } from "../context/LoanContext";
+import { getRiderByID, getAllLoans } from "../utils/loanStore";
+
+const API_URL = "https://bodacredit.onrender.com";
+
+// ── Error Boundary ─────────────────────────────────────────────────────────
+class ErrorBoundary extends Component {
+  constructor(props) {
+    super(props);
+    this.state = { hasError: false, message: "" };
+  }
+  static getDerivedStateFromError(err) {
+    return { hasError: true, message: err.message };
+  }
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="bg-red-50 border border-red-200 rounded-xl p-6 m-6 text-red-800">
+          <p className="font-bold text-lg mb-2">⚠️ Render Error</p>
+          <p className="text-sm font-mono">{this.state.message}</p>
+          <p className="text-sm mt-3 text-red-600">
+            Check the browser console and Network tab for details.
+          </p>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
 
 // ── Helpers ────────────────────────────────────────────────────────────────
-const fmt = (v) => (typeof v === "number" && !isNaN(v) ? v : 0).toLocaleString();
+const fmt = (v) =>
+  (typeof v === "number" && !isNaN(v) ? v : 0).toLocaleString();
 
 const getRiskTier = (pd) =>
   pd < 0.20 ? "LOW"
@@ -13,624 +41,898 @@ const getRiskTier = (pd) =>
   : pd < 0.65 ? "HIGH"
   : "VERY HIGH";
 
-const RISK_COLOR = {
-  "LOW":        { bg: "#dcfce7", text: "#166534", dot: "#22c55e" },
-  "LOW-MEDIUM": { bg: "#dcfce7", text: "#102476", dot: "#22c55e" },
-  "MEDIUM":     { bg: "#fef9c3", text: "#854d0e", dot: "#13685e" },
-  "HIGH":       { bg: "#ffedd5", text: "#9a3412", dot: "#1a5338" },
-  "VERY HIGH":  { bg: "#fee2e2", text: "#991b1b", dot: "#ef4444" },
+const getRiskColor = (tier) =>
+  ({
+    "LOW":        "bg-green-100 text-green-800 border-green-200",
+    "LOW-MEDIUM": "bg-green-100 text-green-800 border-green-200",
+    "MEDIUM":     "bg-yellow-100 text-yellow-800 border-yellow-200",
+    "HIGH":       "bg-orange-100 text-orange-800 border-orange-200",
+    "VERY HIGH":  "bg-red-100 text-red-800 border-red-200",
+  })[tier] ?? "bg-gray-100 text-gray-800";
+
+const getRiskEmoji = (tier) =>
+  ({
+    "LOW":        "🟢",
+    "LOW-MEDIUM": "🟢",
+    "MEDIUM":     "🟡",
+    "HIGH":       "🟠",
+    "VERY HIGH":  "🔴",
+  })[tier] ?? "⚪";
+
+const getDecisionStyle = (decision) => {
+  if (!decision) return "";
+  const d = decision.toUpperCase();
+  if (d === "APPROVE" || d === "APPROVED")
+    return "bg-green-50 border-green-200 text-green-800";
+  if (d === "DECLINE" || d === "DECLINED" || d === "HARD_BLOCK")
+    return "bg-red-50 border-red-200 text-red-800";
+  return "bg-yellow-50 border-yellow-200 text-yellow-800";
 };
 
-const DECISION_COLOR = {
-  APPROVE:   { bg: "#dcfce7", text: "#166534" },
-  APPROVED:  { bg: "#dcfce7", text: "#166534" },
-  DECLINE:   { bg: "#fee2e2", text: "#991b1b" },
-  DECLINED:  { bg: "#fee2e2", text: "#991b1b" },
-  HARD_BLOCK:{ bg: "#fee2e2", text: "#991b1b" },
+const getDecisionEmoji = (decision) => {
+  if (!decision) return "⚪";
+  const d = decision.toUpperCase();
+  if (d === "APPROVE" || d === "APPROVED") return "✅";
+  if (d === "DECLINE" || d === "DECLINED" || d === "HARD_BLOCK") return "🚫";
+  return "";
 };
 
-const decisionColor = (d = "") =>
-  DECISION_COLOR[d.toUpperCase()] ?? { bg: "#fef9c3", text: "#854d0e" };
+// ── Default form state ─────────────────────────────────────────────────────
+const defaultForm = () => ({
+  national_id:             "",
+  full_name:               "",
+  phone_number:            "",
+  rider_segment:           "Stage Rider",
+  bike_ownership:          "Hired",
+  requested_amount:        "",
+  requested_term_days:     "90",
+  loan_purpose:            "Bike Repair",
+  application_month:       String(new Date().getMonth() + 1),
+  avg_daily_income:        "",
+  is_sacco_member:         "0",
+  sacco_tenure_months:     "0",
+  sacco_contribution_rate: "0",
+  total_loans_taken:       "0",
+  on_time_repayment_rate:  "0.75",
+  ever_defaulted:          "0",
+  active_digital_loans:    "0",
+});
 
-const decisionEmoji = (d = "") => {
-  const u = d.toUpperCase();
-  if (u === "APPROVE" || u === "APPROVED") return "✅";
-  if (u === "DECLINE" || u === "DECLINED" || u === "HARD_BLOCK") return "🚫";
-  return "⚠️";
-};
+const STEP_LABELS = [
+  "Rider Identity",
+  "Loan Request",
+  "Income",
+  "SACCO & History",
+  "Decision",
+];
 
-// Animated counter
-function AnimCounter({ target, prefix = "", suffix = "" }) {
-  const [val, setVal] = useState(0);
-  const ref = useRef(null);
-  const [started, setStarted] = useState(false);
+// ── Component ──────────────────────────────────────────────────────────────
+export default function NewApplication() {
+  const [step, setStep] = useState(1);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+  const [result, setResult] = useState(null);
+  const [formData, setFormData] = useState(defaultForm);
+  const [returningRider, setReturningRider] = useState(null);
+  const { addApplication } = useLoanContext();
+
+  // ── RETURNING RIDER DETECTION ─────────────────────────────────────────
   useEffect(() => {
-    const obs = new IntersectionObserver(
-      ([e]) => { if (e.isIntersecting) setStarted(true); },
-      { threshold: 0.3 }
-    );
-    if (ref.current) obs.observe(ref.current);
-    return () => obs.disconnect();
-  }, []);
-  useEffect(() => {
-    if (!started) return;
-    const n = parseFloat(target);
-    const isFloat = String(target).includes(".");
-    let i = 0; const steps = 40;
-    const t = setInterval(() => {
-      i++;
-      const p = 1 - Math.pow(1 - i / steps, 3);
-      setVal(isFloat ? parseFloat((p * n).toFixed(2)) : Math.floor(p * n));
-      if (i >= steps) clearInterval(t);
-    }, 1000 / steps);
-    return () => clearInterval(t);
-  }, [started, target]);
-  return <span ref={ref}>{prefix}{val}{suffix}</span>;
-}
-
-// Sidebar nav item
-const NavItem = ({ to, active, icon, children, onClick }) => (
-  <Link
-    to={to}
-    onClick={onClick}
-    className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm
-                transition-all duration-150 font-medium
-                ${active
-                  ? "text-white"
-                  : "text-gray-400 hover:text-white hover:bg-white/5"}`}
-    style={active ? { backgroundColor: "#235347" } : {}}>
-    <span className="text-base">{icon}</span>
-    {children}
-  </Link>
-);
-
-// ── MAIN COMPONENT ─────────────────────────────────────────────────────────
-export default function Dashboard() {
-  const { officer, logout } = useAuth();
-  const navigate = useNavigate();
-  const [loans, setLoans] = useState([]);
-  const [riders, setRiders] = useState({});
-  const [apiOnline, setApiOnline] = useState(null);
-  const [now, setNow] = useState(new Date());
-  const [sidebarOpen, setSidebarOpen] = useState(false);
-
-  // live clock
-  useEffect(() => {
-    const t = setInterval(() => setNow(new Date()), 60000);
-    return () => clearInterval(t);
-  }, []);
-
-  // API health check
-  useEffect(() => {
-    fetch(`${import.meta.env.VITE_API_URL}/health`)
-      .then((r) => r.json())
-      .then(() => setApiOnline(true))
-      .catch(() => setApiOnline(false));
-  }, []);
-
-  // Load from store
-  useEffect(() => {
-    const refresh = () => {
-      setLoans(getAllLoans());
-      setRiders(getAllRiders());
+    const checkReturningRider = async () => {
+      const nationalId = formData.national_id.trim();
+      if (nationalId.length >= 6) {
+        const existingRider = getRiderByID(nationalId);
+        if (existingRider) {
+          const allLoans = getAllLoans();
+          const riderLoans = allLoans.filter(loan => 
+            loan.national_id === nationalId || loan.rider_id?.includes(nationalId)
+          );
+          
+          setReturningRider({
+            profile: existingRider,
+            loanCount: riderLoans.length,
+            previousLoans: riderLoans
+          });
+          
+          setFormData(prev => ({
+            ...prev,
+            full_name: existingRider.full_name || prev.full_name,
+            phone_number: existingRider.phone_number || prev.phone_number,
+            rider_segment: existingRider.rider_segment || prev.rider_segment,
+            bike_ownership: existingRider.bike_ownership || prev.bike_ownership,
+            total_loans_taken: String((existingRider.total_loans_taken || 0) + 1),
+            on_time_repayment_rate: String(existingRider.on_time_repayment_rate || "0.75"),
+            ever_defaulted: String(existingRider.ever_defaulted || "0"),
+            active_digital_loans: String(existingRider.active_digital_loans || "0"),
+            is_sacco_member: String(existingRider.is_sacco_member || "0"),
+            sacco_tenure_months: String(existingRider.sacco_tenure_months || "0"),
+            sacco_contribution_rate: String(existingRider.sacco_contribution_rate || "0"),
+          }));
+        } else {
+          setReturningRider(null);
+        }
+      } else {
+        setReturningRider(null);
+      }
     };
-    refresh();
-    window.addEventListener("focus", refresh);
-    document.addEventListener("visibilitychange", refresh);
-    return () => {
-      window.removeEventListener("focus", refresh);
-      document.removeEventListener("visibilitychange", refresh);
-    };
-  }, []);
+    
+    const timeoutId = setTimeout(checkReturningRider, 500);
+    return () => clearTimeout(timeoutId);
+  }, [formData.national_id]);
 
-  // ── Derived stats ────────────────────────────────────────────────────────
-  const today = new Date().toDateString();
-  const todayLoans = loans.filter((l) => new Date(l.applied_at).toDateString() === today);
+  const handleChange = (e) => {
+    const { name, value } = e.target;
+    setFormData((prev) => {
+      const updated = { ...prev, [name]: value };
+      if (name === "total_loans_taken") {
+        updated.on_time_repayment_rate =
+          value === "0" ? "0.75" : prev.on_time_repayment_rate;
+      }
+      if (name === "is_sacco_member" && value === "0") {
+        updated.sacco_tenure_months = "0";
+        updated.sacco_contribution_rate = "0";
+      }
+      return updated;
+    });
+  };
 
-  const totalApproved = loans.filter((l) =>
-    ["APPROVE", "APPROVED"].includes(l.decision?.toUpperCase())).length;
-  const totalDeclined = loans.filter((l) =>
-    ["DECLINE", "DECLINED", "HARD_BLOCK"].includes(l.decision?.toUpperCase())).length;
-  const totalReview = loans.filter((l) =>
-    l.decision?.toUpperCase().includes("REVIEW")).length;
+  const nextStep = () => { setError(null); setStep((s) => Math.min(s + 1, 5)); };
+  const prevStep = () => { setError(null); setStep((s) => Math.max(s - 1, 1)); };
 
-  const approvedAmount = loans
-    .filter((l) => ["APPROVE", "APPROVED"].includes(l.decision?.toUpperCase()))
-    .reduce((sum, l) => sum + (l.recommendation?.recommended_amount ?? 0), 0);
+  // ── Submit ─────────────────────────────────────────────────────────────
+  const handleSubmit = async () => {
+    setError(null);
 
-  const avgScore = loans.length
-    ? Math.round(
-        loans.reduce((s, l) => s + (l.scoring?.pd_score != null
-          ? (1 - l.scoring.pd_score) * 100 : 0), 0) / loans.length
-      )
-    : 0;
-
-  const returningCount = loans.filter((l) => l.is_returning_rider).length;
-  const riderCount = Object.keys(riders).length;
-
-  // Risk distribution
-  const riskCounts = { LOW: 0, "LOW-MEDIUM": 0, MEDIUM: 0, HIGH: 0, "VERY HIGH": 0 };
-  loans.forEach((l) => {
-    if (l.scoring?.pd_score != null) {
-      const t = getRiskTier(l.scoring.pd_score);
-      riskCounts[t] = (riskCounts[t] || 0) + 1;
+    if (!formData.full_name.trim()) {
+      setError("Please enter the rider's full name.");
+      return;
     }
-  });
-
-  // Monthly volume — last 6 months
-  const monthlyData = (() => {
-    const months = [];
-    for (let i = 5; i >= 0; i--) {
-      const d = new Date();
-      d.setMonth(d.getMonth() - i);
-      const key = `${d.getFullYear()}-${d.getMonth()}`;
-      const label = d.toLocaleString("default", { month: "short" });
-      const count = loans.filter((l) => {
-        const ld = new Date(l.applied_at);
-        return `${ld.getFullYear()}-${ld.getMonth()}` === key;
-      }).length;
-      months.push({ label, count });
+    if (!formData.avg_daily_income || parseFloat(formData.avg_daily_income) <= 0) {
+      setError("Please enter a valid average daily income.");
+      return;
     }
-    return months;
-  })();
-  const maxMonthly = Math.max(...monthlyData.map((m) => m.count), 1);
+    if (!formData.requested_amount || parseFloat(formData.requested_amount) <= 0) {
+      setError("Please enter a valid requested loan amount.");
+      return;
+    }
 
-  const recent = loans.slice(0, 8);
-  const queuePreview = loans.slice(0, 5);
+    setLoading(true);
+    try {
+      const payload = {
+        rider_id: `RDR-${Date.now()}`,
+        national_id: formData.national_id,
+        rider_name: formData.full_name,
+        phone_number: formData.phone_number,
+        rider_segment: formData.rider_segment,
+        bike_ownership: formData.bike_ownership,
+        requested_amount: parseFloat(formData.requested_amount),
+        requested_term_days: parseInt(formData.requested_term_days),
+        loan_purpose: formData.loan_purpose,
+        application_month: parseInt(formData.application_month),
+        avg_daily_income: parseFloat(formData.avg_daily_income) || 0,
+        is_sacco_member: parseInt(formData.is_sacco_member),
+        sacco_tenure_months: parseInt(formData.sacco_tenure_months),
+        sacco_contribution_rate: parseFloat(formData.sacco_contribution_rate),
+        total_loans_taken: parseInt(formData.total_loans_taken),
+        on_time_repayment_rate: parseFloat(formData.on_time_repayment_rate),
+        ever_defaulted: parseInt(formData.ever_defaulted),
+        active_digital_loans: parseInt(formData.active_digital_loans),
+        first_time_borrower: formData.total_loans_taken === "0" ? 1 : 0,
+        previous_loan_count: returningRider?.loanCount || 0,
+      };
 
+      const token = localStorage.getItem("bodacredit_token");
+
+      const response = await fetch(`${API_URL}/score`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${token}`,
+        },
+        body: JSON.stringify(payload),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        const msg = Array.isArray(data.detail)
+          ? data.detail.map((e) => `${e.loc?.slice(-1)[0] ?? "field"}: ${e.msg}`).join("\n")
+          : data.detail ?? "Scoring failed. Check FastAPI server.";
+        setError(msg);
+      } else {
+        addApplication({
+          applied_at: new Date().toISOString(),
+          national_id: formData.national_id,
+          rider_name: payload.rider_name,
+          rider_id: payload.rider_id,
+          phone_number: payload.phone_number,
+          rider_segment: payload.rider_segment,
+          bike_ownership: payload.bike_ownership,
+          requested_amount: payload.requested_amount,
+          requested_term_days: payload.requested_term_days,
+          avg_daily_income: payload.avg_daily_income,
+          decision: data.decision,
+          pd_score: data.scoring?.pd_score,
+          recommended_amount: data.recommendation?.recommended_amount,
+          daily_repayment: data.recommendation?.daily_repayment,
+          scoring: data.scoring,
+          recommendation: data.recommendation,
+          fairness: data.fairness,
+          is_sacco_member: payload.is_sacco_member,
+          sacco_tenure_months: payload.sacco_tenure_months,
+          sacco_contribution_rate: payload.sacco_contribution_rate,
+          total_loans_taken: payload.total_loans_taken,
+          on_time_repayment_rate: payload.on_time_repayment_rate,
+          ever_defaulted: payload.ever_defaulted,
+          active_digital_loans: payload.active_digital_loans,
+          is_returning_rider: !!returningRider,
+        });
+
+        setResult(data);
+        setStep(5);
+      }
+    } catch (err) {
+      console.error("Score API error:", err);
+      setError("Cannot connect to scoring engine. Is FastAPI running on port 8000?");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // ── Render ─────────────────────────────────────────────────────────────
   return (
-    <div className="flex flex-col md:flex-row h-screen overflow-hidden text-gray-900"
-      style={{ backgroundColor: "#f4f6f4", fontFamily: "'Inter', system-ui, sans-serif" }}>
-
-      {/* ── MOBILE HEADER ─────────────────────────────────────────────── */}
-      <div className="md:hidden flex items-center justify-between px-4 py-3 text-white flex-shrink-0"
-        style={{ backgroundColor: "#111b18" }}>
-        <div className="flex items-center gap-2">
-          <button
-            onClick={() => setSidebarOpen(true)}
-            className="text-white text-xl mr-2 p-1"
-            aria-label="Open menu">
-            ☰
-          </button>
-          <div
-            className="w-7 h-7 rounded-lg flex items-center justify-center font-bold text-white text-xs"
-            style={{ backgroundColor: "#235347" }}>B</div>
-          <p className="text-white font-bold text-sm">BodaCredit</p>
+    <ErrorBoundary>
+      <div className="min-h-screen flex flex-col md:flex-row bg-[#f6f7f9] text-gray-900">
+        {/* MOBILE HEADER */}
+        <div className="md:hidden bg-[#111827] text-white px-4 py-3 flex items-center justify-between">
+          <h1 className="text-lg font-bold text-[#235347]">BodaCredit</h1>
+          <span className="text-sm text-gray-400">Step {step} of 5</span>
         </div>
-        <div className="flex items-center gap-3">
-          <button
-            onClick={() => navigate("/new-application")}
-            className="text-xs px-3 py-1.5 rounded-lg text-white"
-            style={{ backgroundColor: "#235347" }}>
-            + New
-          </button>
-          <button
-            onClick={() => { logout(); navigate("/"); }}
-            className="text-xs text-gray-400">
-            Sign Out
-          </button>
-        </div>
-      </div>
 
-      {/* ── BODY ROW (sidebar + main) ──────────────────────────────────── */}
-      <div className="flex flex-1 overflow-hidden">
+        {/* SIDEBAR */}
+        <aside className="hidden md:flex md:w-64 bg-[#111827] text-white p-5 flex-shrink-0 flex-col">
+          <h1 className="text-2xl font-bold text-[#235347]">BodaCredit</h1>
 
-        {/* MOBILE OVERLAY */}
-        {sidebarOpen && (
-          <div
-            className="fixed inset-0 bg-black/50 z-20 md:hidden"
-            onClick={() => setSidebarOpen(false)} />
-        )}
-
-        {/* ── SIDEBAR ─────────────────────────────────────────────────── */}
-        <aside
-          className={`fixed md:relative inset-y-0 left-0 z-30
-                      w-60 flex flex-col flex-shrink-0 border-r border-white/10
-                      transition-transform duration-300 ease-in-out
-                      ${sidebarOpen ? "translate-x-0" : "-translate-x-full"}
-                      md:translate-x-0`}
-          style={{ backgroundColor: "#111b18" }}>
-
-          {/* LOGO + CLOSE BUTTON */}
-          <div className="px-5 py-5 border-b border-white/10">
-            <div className="flex items-center gap-2.5">
-              <div
-                className="w-8 h-8 rounded-lg flex items-center justify-center font-bold text-white text-sm flex-shrink-0"
-                style={{ backgroundColor: "#235347" }}>B</div>
-              <div className="flex-1">
-                <p className="text-white font-bold text-sm leading-none">BodaCredit</p>
-                <p className="text-gray-500 text-xs mt-0.5">Underwriting System</p>
-              </div>
-              <button
-                className="md:hidden text-gray-400 hover:text-white p-1 -mr-1 flex-shrink-0"
-                onClick={() => setSidebarOpen(false)}
-                aria-label="Close sidebar">
-                ✕
-              </button>
-            </div>
+          <div className="mt-10 space-y-2 text-sm">
+            <div className="border-t border-gray-700 my-2"></div>
           </div>
 
-          {/* NAV */}
-          <nav className="flex-1 px-3 py-4 space-y-0.5 overflow-y-auto">
-            <p className="text-gray-600 text-[10px] uppercase tracking-widest px-3 mb-2">
-              Main
-            </p>
-            <NavItem to="/dashboard" active icon="⊞" onClick={() => setSidebarOpen(false)}>Dashboard</NavItem>
-            <NavItem to="/new-application" icon="＋" onClick={() => setSidebarOpen(false)}>New Application</NavItem>
-            <NavItem to="/loan-queue" icon="☰" onClick={() => setSidebarOpen(false)}>Loan Queue</NavItem>
-            <NavItem to="/portfolio" icon="◫" onClick={() => setSidebarOpen(false)}>Portfolio</NavItem>
-
-            <p className="text-gray-600 text-[10px] uppercase tracking-widest px-3 mb-2 mt-5">
-              Analysis
-            </p>
-            <NavItem to="/dashboard" icon="⚑" onClick={() => setSidebarOpen(false)}>Risk Review</NavItem>
-            <NavItem to="/dashboard" icon="✓" onClick={() => setSidebarOpen(false)}>Fairness Logs</NavItem>
-          </nav>
-
-          {/* API STATUS + USER + LOGOUT */}
-          <div className="px-4 py-4 border-t border-white/10 space-y-3">
-            <div className="flex items-center gap-2 text-xs">
-              <span className={`w-2 h-2 rounded-full flex-shrink-0 ${
-                apiOnline === null ? "bg-yellow-400 animate-pulse"
-                : apiOnline ? "bg-emerald-400"
-                : "bg-red-400"}`} />
-              <span className="text-gray-400">
-                {apiOnline === null ? "Connecting..."
-                 : apiOnline ? "Scoring engine online"
-                 : "Engine offline"}
-              </span>
-            </div>
-
-            <div className="flex items-center gap-2">
+          {/* STEP INDICATORS */}
+          <div className="mt-12 space-y-3 text-xs text-gray-400">
+            {STEP_LABELS.map((label, i) => (
               <div
-                className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold text-white flex-shrink-0"
-                style={{ backgroundColor: "#235347" }}>
-                {officer?.name?.charAt(0).toUpperCase() ?? "L"}
+                key={label}
+                className={`flex items-center gap-2 ${
+                  step === i + 1 ? "text-white font-semibold" : ""
+                }`}>
+                <span className={`w-5 h-5 rounded-full flex items-center justify-center text-xs font-bold ${
+                  step > i + 1
+                    ? "bg-green-500 text-white"
+                    : step === i + 1
+                    ? "bg-[#235347] text-white"
+                    : "bg-gray-700 text-gray-400"
+                }`}>
+                  {step > i + 1 ? "✓" : i + 1}
+                </span>
+                {label}
               </div>
-              <div className="flex-1 min-w-0">
-                <p className="text-white text-xs font-medium truncate">
-                  {officer?.name ?? "Loan Officer"}
-                </p>
-                <p className="text-gray-500 text-[10px]">
-                  {officer?.sacco_id ?? "SACCO Admin"}
-                </p>
-              </div>
-            </div>
+            ))}
+          </div>
 
+          <div className="mt-auto pt-6 border-t border-gray-700">
             <button
-              onClick={() => { logout(); navigate("/"); }}
-              className="w-full flex items-center gap-2 px-3 py-2 rounded-lg
-                         text-gray-400 hover:text-white hover:bg-red-900/30
-                         transition-all duration-150 text-xs font-medium
-                         border border-white/5 hover:border-red-900/50">
-              <span>⎋</span>
-              Sign Out
+              onClick={() => window.history.back()}
+              className="w-full flex items-center gap-2 px-3 py-2 rounded hover:bg-gray-800 text-white transition">
+              <span>Back</span>
             </button>
           </div>
         </aside>
 
-        {/* ── MAIN CONTENT ──────────────────────────────────────────────── */}
-        <div className="flex-1 flex flex-col overflow-hidden">
+        {/* MAIN */}
+        <main className="flex-1 p-8 overflow-y-auto">
+          <div className="mb-6">
+            <h2 className="text-3xl font-bold">New Loan Application</h2>
+            <p className="text-gray-500 mt-1">
+              Step {step} of 5 — {STEP_LABELS[step - 1]}
+            </p>
+          </div>
 
-          {/* TOP BAR */}
-          <header className="flex items-center justify-between px-7 py-4 bg-white border-b border-gray-100 flex-shrink-0">
-            <div>
-              <h1 className="text-xl font-bold text-gray-900">Dashboard</h1>
-              <p className="text-xs text-gray-400 mt-0.5">
-                {now.toLocaleDateString("en-KE", {
-                  weekday: "long", year: "numeric",
-                  month: "long", day: "numeric"
-                })}
-              </p>
-            </div>
-            <div className="flex items-center gap-3">
-              <Link
-                to="/loan-queue"
-                className="text-xs px-4 py-2 rounded-lg border border-gray-200
-                           text-gray-600 hover:bg-gray-50 hover:border-[#235347] transition-colors">
-                View All Loans
-              </Link>
-              <button
-                onClick={() => navigate("/new-application")}
-                disabled={!apiOnline}
-                className="text-xs px-4 py-2.5 rounded-lg text-white font-semibold
-                           transition-all disabled:opacity-40"
-                style={{ backgroundColor: "#235347" }}
-                onMouseEnter={(e) => e.currentTarget.style.backgroundColor = "#1a3d32"}
-                onMouseLeave={(e) => e.currentTarget.style.backgroundColor = "#235347"}>
-                New Application
-              </button>
-            </div>
-          </header>
+          {/* PROGRESS BAR */}
+          <div className="w-full bg-gray-200 h-2 rounded-full mb-8">
+            <div
+              className="h-2 bg-[#235347] rounded-full transition-all duration-500"
+              style={{ width: `${(step / 5) * 100}%` }}
+            />
+          </div>
 
-          {/* SCROLLABLE BODY */}
-          <div className="flex-1 overflow-y-auto px-4 md:px-7 py-6 space-y-6">
-
-            {/* ── KPI CARDS ──────────────────────────────────────────────── */}
-            <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-              {[
-                {
-                  label: "Applications Today",
-                  value: todayLoans.length,
-                  sub: `${loans.length} total all time`,
-                  color: "#235347",
-                },
-                {
-                  label: "Amount Approved",
-                  value: `KES ${fmt(approvedAmount)}`,
-                  sub: `${totalApproved} approved loans`,
-                  color: "#166534",
-                },
-                {
-                  label: "Avg Credit Score",
-                  value: loans.length ? avgScore : "—",
-                  sub: `Across ${loans.length} scored rider${loans.length !== 1 ? "s" : ""}`,
-                  color: "#235347",
-                },
-                {
-                  label: "Riders in System",
-                  value: riderCount,
-                  sub: `${returningCount} returning rider${returningCount !== 1 ? "s" : ""}`,
-                  color: "#235347",
-                },
-              ].map((k) => (
-                <div key={k.label}
-                  className="bg-white rounded-xl p-5 border border-gray-100 hover:shadow-md transition-shadow">
-                  <div className="flex items-start justify-between mb-3">
-                    <p className="text-xs text-gray-400 font-medium uppercase tracking-wider leading-tight">{k.label}</p>
-                    <span className="text-xl">{k.icon}</span>
+          {/* FORM CARD */}
+          <div className="bg-white border rounded-xl p-6 max-w-3xl">
+            {/* RETURNING RIDER BANNER */}
+            {returningRider && step < 5 && (
+              <div className="mb-6 bg-blue-50 border border-blue-200 rounded-lg p-4">
+                <div className="flex items-start gap-3">
+                  <span className="text-2xl">🔄</span>
+                  <div className="flex-1">
+                    <p className="font-semibold text-blue-900">Returning Rider Detected</p>
+                    <p className="text-sm text-blue-700 mt-1">
+                      {returningRider.profile.full_name} — {returningRider.loanCount} previous loan(s) found.
+                      Form has been pre-filled with their information.
+                    </p>
+                    {returningRider.previousLoans.length > 0 && (
+                      <p className="text-xs text-blue-600 mt-2">
+                        Last loan: {new Date(returningRider.previousLoans[0]?.applied_at).toLocaleDateString("en-KE", {
+                          day: "numeric", month: "short", year: "numeric"
+                        })}
+                      </p>
+                    )}
                   </div>
-                  <p className="text-2xl font-bold text-gray-900">
-                    {typeof k.value === "number"
-                      ? <AnimCounter target={k.value} />
-                      : k.value}
-                  </p>
-                  <p className="text-xs text-gray-400 mt-1">{k.sub}</p>
-                  <div className="mt-3 h-0.5 rounded-full"
-                    style={{ backgroundColor: k.color, opacity: 0.3 }} />
+                  <button
+                    onClick={() => setReturningRider(null)}
+                    className="text-blue-600 hover:text-blue-800 text-sm">
+                    Clear
+                  </button>
                 </div>
-              ))}
-            </div>
-
-            {/* ── MIDDLE ROW: Queue Preview + Risk Chart ─────────────────── */}
-            <div className="grid lg:grid-cols-5 gap-4">
-
-              {/* RECENT QUEUE — 3 cols */}
-              <div className="lg:col-span-3 bg-white rounded-xl border border-gray-100">
-                <div className="px-5 py-4 border-b border-gray-50 flex items-center justify-between">
-                  <div>
-                    <h2 className="font-bold text-gray-900 text-sm">Recent Applications</h2>
-                    <p className="text-xs text-gray-400 mt-0.5">Latest 5 scored riders</p>
-                  </div>
-                  <Link to="/loan-queue"
-                    className="text-xs font-medium transition-colors"
-                    style={{ color: "#235347" }}>
-                    View all →
-                  </Link>
-                </div>
-
-                {queuePreview.length === 0 ? (
-                  <div className="py-16 text-center text-gray-400">
-                    <p className="text-3xl mb-3">📭</p>
-                    <p className="text-sm">No applications yet</p>
-                    <button onClick={() => navigate("/new-application")}
-                      className="mt-3 text-xs font-medium"
-                      style={{ color: "#235347" }}>
-                      Score your first rider →
-                    </button>
-                  </div>
-                ) : (
-                  <div className="divide-y divide-gray-50">
-                    {queuePreview.map((loan, i) => {
-                      const pd = loan.scoring?.pd_score ?? null;
-                      const score = pd != null ? Math.round((1 - pd) * 100) : null;
-                      const tier = pd != null ? getRiskTier(pd) : null;
-                      const rc = tier ? RISK_COLOR[tier] : null;
-                      const dc = decisionColor(loan.decision ?? "");
-                      return (
-                        <div key={i}
-                          className="px-5 py-3.5 flex items-center gap-4 hover:bg-gray-50/60 transition-colors cursor-pointer"
-                          onClick={() => navigate("/loan-queue")}>
-                          <div
-                            className="w-9 h-9 rounded-full flex items-center justify-center text-white text-sm font-bold flex-shrink-0"
-                            style={{ backgroundColor: "#235347" }}>
-                            {loan.rider_name?.charAt(0).toUpperCase() ?? "?"}
-                          </div>
-                          <div className="flex-1 min-w-0">
-                            <p className="font-semibold text-sm text-gray-900 truncate">
-                              {loan.rider_name}
-                            </p>
-                            <p className="text-xs text-gray-400 mt-0.5">
-                              KES {fmt(loan.requested_amount)} ·{" "}
-                              {new Date(loan.applied_at).toLocaleDateString("en-KE", {
-                                day: "numeric", month: "short"
-                              })}
-                            </p>
-                          </div>
-                          {score != null && (
-                            <div className="text-right flex-shrink-0">
-                              <p className="text-sm font-bold text-gray-900">
-                                {score}<span className="text-xs text-gray-400">/100</span>
-                              </p>
-                              {rc && (
-                                <span className="text-xs px-2 py-0.5 rounded-full font-medium"
-                                  style={{ backgroundColor: rc.bg, color: rc.text }}>
-                                  {tier}
-                                </span>
-                              )}
-                            </div>
-                          )}
-                          <span className="text-xs px-2.5 py-1 rounded-full font-semibold flex-shrink-0"
-                            style={{ backgroundColor: dc.bg, color: dc.text }}>
-                            {decisionEmoji(loan.decision)} {loan.decision}
-                          </span>
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
               </div>
+            )}
 
-              {/* RISK DISTRIBUTION — 2 cols */}
-              <div className="lg:col-span-2 bg-white rounded-xl border border-gray-100">
-                <div className="px-5 py-4 border-b border-gray-50">
-                  <h2 className="font-bold text-gray-900 text-sm">Risk Distribution</h2>
-                  <p className="text-xs text-gray-400 mt-0.5">All scored applications</p>
+            {/* STEP 1: RIDER IDENTITY */}
+            {step === 1 && (
+              <>
+                <h3 className="text-lg font-semibold mb-1">Rider Identity</h3>
+                <p className="text-sm text-gray-500 mb-5">
+                  Basic information about the rider applying for the loan.
+                </p>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="col-span-2">
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      National ID Number * (Enter to check for returning rider)
+                    </label>
+                    <input
+                      name="national_id"
+                      placeholder="e.g. 12345678"
+                      value={formData.national_id}
+                      onChange={handleChange}
+                      className="w-full border border-gray-300 p-3 rounded-lg text-sm
+                                 focus:outline-none focus:ring-2 focus:ring-[#7A4988]"
+                    />
+                    <p className="text-xs text-gray-400 mt-1">
+                      System will auto-detect returning riders and pre-fill their information
+                    </p>
+                  </div>
+                  <div className="col-span-2">
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Full Name *
+                    </label>
+                    <input
+                      name="full_name"
+                      placeholder="e.g. John Kamau Njoroge"
+                      value={formData.full_name}
+                      onChange={handleChange}
+                      className="w-full border border-gray-300 p-3 rounded-lg text-sm
+                                 focus:outline-none focus:ring-2 focus:ring-[#7A4988]"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Phone Number
+                    </label>
+                    <input
+                      name="phone_number"
+                      placeholder="0712 345 678"
+                      value={formData.phone_number}
+                      onChange={handleChange}
+                      className="w-full border border-gray-300 p-3 rounded-lg text-sm
+                                 focus:outline-none focus:ring-2 focus:ring-[#7A4988]"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Rider Segment
+                    </label>
+                    <select
+                      name="rider_segment"
+                      value={formData.rider_segment}
+                      onChange={handleChange}
+                      className="w-full border border-gray-300 p-3 rounded-lg text-sm
+                                 focus:outline-none focus:ring-2 focus:ring-[#7A4988]"
+                    >
+                      {["Stage Rider","App Rider","Hybrid Rider","SACCO Member","Owner Rider"].map(
+                        (s) => <option key={s}>{s}</option>
+                      )}
+                    </select>
+                    <p className="text-xs text-gray-400 mt-1">
+                      Stage = no app. App = Bolt/Little/SafeBoda. Hybrid = both.
+                    </p>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Bike Ownership
+                    </label>
+                    <select
+                      name="bike_ownership"
+                      value={formData.bike_ownership}
+                      onChange={handleChange}
+                      className="w-full border border-gray-300 p-3 rounded-lg text-sm
+                                 focus:outline-none focus:ring-2 focus:ring-[#7A4988]"
+                    >
+                      <option value="Hired">Hired — pays daily fee</option>
+                      <option value="Owned">Owned — no hire fee</option>
+                    </select>
+                  </div>
                 </div>
-                <div className="px-5 py-5 space-y-3">
-                  {loans.length === 0 ? (
-                    <p className="text-center text-gray-400 text-sm py-8">No data yet</p>
-                  ) : (
-                    Object.entries(riskCounts).map(([tier, count]) => {
-                      const rc = RISK_COLOR[tier];
-                      const pct = loans.length ? Math.round((count / loans.length) * 100) : 0;
-                      return (
-                        <div key={tier}>
-                          <div className="flex justify-between text-xs mb-1.5">
-                            <span className="font-medium text-gray-700">{tier}</span>
-                            <span className="text-gray-400">{count} ({pct}%)</span>
-                          </div>
-                          <div className="h-2 rounded-full bg-gray-100 overflow-hidden">
-                            <div className="h-full rounded-full transition-all duration-700"
-                              style={{ width: `${pct}%`, backgroundColor: rc.dot }} />
+              </>
+            )}
+
+            {/* STEP 2: LOAN REQUEST */}
+            {step === 2 && (
+              <>
+                <h3 className="text-lg font-semibold mb-1">Loan Request</h3>
+                <p className="text-sm text-gray-500 mb-5">
+                  What the rider is applying for.
+                </p>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Amount Requested (KES) *
+                    </label>
+                    <input
+                      name="requested_amount"
+                      type="number"
+                      placeholder="e.g. 20000"
+                      value={formData.requested_amount}
+                      onChange={handleChange}
+                      className="w-full border border-gray-300 p-3 rounded-lg text-sm
+                                 focus:outline-none focus:ring-2 focus:ring-[#7A4988]"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Loan Term
+                    </label>
+                    <select
+                      name="requested_term_days"
+                      value={formData.requested_term_days}
+                      onChange={handleChange}
+                      className="w-full border border-gray-300 p-3 rounded-lg text-sm
+                                 focus:outline-none focus:ring-2 focus:ring-[#7A4988]"
+                    >
+                      <option value="30">30 days — 1 month</option>
+                      <option value="60">60 days — 2 months</option>
+                      <option value="90">90 days — 3 months</option>
+                      <option value="120">120 days — 4 months</option>
+                      <option value="180">180 days — 6 months</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Loan Purpose
+                    </label>
+                    <select
+                      name="loan_purpose"
+                      value={formData.loan_purpose}
+                      onChange={handleChange}
+                      className="w-full border border-gray-300 p-3 rounded-lg text-sm
+                                 focus:outline-none focus:ring-2 focus:ring-[#7A4988]"
+                    >
+                      {["Bike Repair","Working Capital","Bike Upgrade","Emergency","Bike Purchase"].map(
+                        (p) => <option key={p}>{p}</option>
+                      )}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Application Month
+                    </label>
+                    <select
+                      name="application_month"
+                      value={formData.application_month}
+                      onChange={handleChange}
+                      className="w-full border border-gray-300 p-3 rounded-lg text-sm
+                                 focus:outline-none focus:ring-2 focus:ring-[#7A4988]"
+                    >
+                      {["January","February","March","April","May","June",
+                        "July","August","September","October","November","December"].map(
+                        (m, i) => <option key={m} value={i + 1}>{m}</option>
+                      )}
+                    </select>
+                    <p className="text-xs text-gray-400 mt-1">
+                      March–May and Oct–Nov are rain season — income dips not penalised.
+                    </p>
+                  </div>
+                </div>
+              </>
+            )}
+
+            {/* STEP 3: INCOME */}
+            {step === 3 && (
+              <>
+                <h3 className="text-lg font-semibold mb-1">Income Information</h3>
+                <p className="text-sm text-gray-500 mb-5">
+                  From the rider's M-Pesa statement — last 90 days.
+                </p>
+                <div className="space-y-5">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Average Daily Income (KES) *
+                    </label>
+                    <input
+                      name="avg_daily_income"
+                      type="number"
+                      placeholder="e.g. 900"
+                      value={formData.avg_daily_income}
+                      onChange={handleChange}
+                      className="w-full border border-gray-300 p-3 rounded-lg text-sm
+                                 focus:outline-none focus:ring-2 focus:ring-[#7A4988]"
+                    />
+                    <p className="text-xs text-gray-400 mt-1">
+                      Total M-Pesa income inflows ÷ active working days over last 90 days.
+                    </p>
+                  </div>
+                  {formData.avg_daily_income && (
+                    <div className="bg-gray-50 border border-gray-200 rounded-xl p-4 space-y-2 text-sm">
+                      <p className="font-medium text-gray-700 mb-3">
+                        Auto-calculated from daily income:
+                      </p>
+                      {(() => {
+                        const daily = parseFloat(formData.avg_daily_income);
+                        const monthly = daily * 26;
+                        const fuel = monthly * 0.30;
+                        const hire = formData.bike_ownership === "Hired" ? 12000 : 0;
+                        const ndi = Math.max(monthly - fuel - hire - 3000 - 2000, 1000);
+                        return (
+                          <>
+                            <div className="flex justify-between">
+                              <span className="text-gray-500">Monthly income estimate</span>
+                              <span className="font-semibold">KES {monthly.toLocaleString()}</span>
+                            </div>
+                            <div className="flex justify-between">
+                              <span className="text-gray-500">Fuel spend (30%)</span>
+                              <span className="font-semibold text-red-600">
+                                − KES {fuel.toLocaleString()}
+                              </span>
+                            </div>
+                            {hire > 0 && (
+                              <div className="flex justify-between">
+                                <span className="text-gray-500">Hire fee (hired rider)</span>
+                                <span className="font-semibold text-red-600">
+                                  − KES {hire.toLocaleString()}
+                                </span>
+                              </div>
+                            )}
+                            <div className="flex justify-between">
+                              <span className="text-gray-500">Food + remittances (est.)</span>
+                              <span className="font-semibold text-red-600">− KES 5,000</span>
+                            </div>
+                            <div className="flex justify-between border-t pt-2 mt-2">
+                              <span className="font-semibold text-gray-800">
+                                Net Disposable Income
+                              </span>
+                              <span className={`font-bold ${
+                                ndi >= 8000 ? "text-green-700"
+                                : ndi >= 4000 ? "text-yellow-700"
+                                : "text-red-700"
+                              }`}>
+                                KES {ndi.toLocaleString()}
+                              </span>
+                            </div>
+                            <div className="flex justify-between text-xs text-gray-400">
+                              <span>Max safe monthly repayment (30% of NDI)</span>
+                              <span>KES {(ndi * 0.30).toLocaleString()}</span>
+                            </div>
+                          </>
+                        );
+                      })()}
+                    </div>
+                  )}
+                </div>
+              </>
+            )}
+
+            {/* STEP 4: SACCO & LOAN HISTORY */}
+            {step === 4 && (
+              <>
+                <h3 className="text-lg font-semibold mb-1">SACCO & Loan History</h3>
+                <p className="text-sm text-gray-500 mb-5">
+                  From SACCO records and credit history.
+                </p>
+                <div className="space-y-5">
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="col-span-2">
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Is this rider a SACCO member?
+                      </label>
+                      <div className="flex gap-3">
+                        {["0", "1"].map((val) => (
+                          <button
+                            key={val}
+                            type="button"
+                            onClick={() =>
+                              handleChange({ target: { name: "is_sacco_member", value: val } })
+                            }
+                            className={`flex-1 py-2 rounded-lg border text-sm font-medium transition ${
+                              formData.is_sacco_member === val
+                                ? "bg-[#7A4988] text-white border-[#7A4988]"
+                                : "border-gray-300 text-gray-600 hover:bg-gray-50"
+                            }`}>
+                            {val === "1" ? "Yes — SACCO Member" : "No"}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    {formData.is_sacco_member === "1" && (
+                      <>
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-1">
+                            Months as SACCO Member
+                          </label>
+                          <input
+                            name="sacco_tenure_months"
+                            type="number"
+                            placeholder="e.g. 14"
+                            value={formData.sacco_tenure_months}
+                            onChange={handleChange}
+                            className="w-full border border-gray-300 p-3 rounded-lg text-sm
+                                       focus:outline-none focus:ring-2 focus:ring-[#7A4988]"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-1">
+                            Contribution Discipline
+                          </label>
+                          <select
+                            name="sacco_contribution_rate"
+                            value={formData.sacco_contribution_rate}
+                            onChange={handleChange}
+                            className="w-full border border-gray-300 p-3 rounded-lg text-sm
+                                       focus:outline-none focus:ring-2 focus:ring-[#7A4988]"
+                          >
+                            <option value="0.95">Excellent — contributes 95%+ of months</option>
+                            <option value="0.80">Good — contributes about 80% of months</option>
+                            <option value="0.65">Fair — contributes about 65% of months</option>
+                            <option value="0.50">Poor — contributes about 50% of months</option>
+                          </select>
+                        </div>
+                      </>
+                    )}
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Number of Prior Loans
+                      </label>
+                      <input
+                        name="total_loans_taken"
+                        type="number"
+                        placeholder="0 if first time borrower"
+                        value={formData.total_loans_taken}
+                        onChange={handleChange}
+                        className="w-full border border-gray-300 p-3 rounded-lg text-sm
+                                   focus:outline-none focus:ring-2 focus:ring-[#7A4988]"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Active Digital Loans
+                      </label>
+                      <select
+                        name="active_digital_loans"
+                        value={formData.active_digital_loans}
+                        onChange={handleChange}
+                        className="w-full border border-gray-300 p-3 rounded-lg text-sm
+                                   focus:outline-none focus:ring-2 focus:ring-[#7A4988]"
+                      >
+                        <option value="0">None</option>
+                        <option value="1">1 — Fuliza or Tala</option>
+                        <option value="2">2 — multiple digital loans</option>
+                        <option value="3">3+ — heavily indebted</option>
+                      </select>
+                    </div>
+
+                    {formData.total_loans_taken === "0" ? (
+                      <div className="col-span-2 bg-blue-50 border border-blue-200 rounded-lg p-3 text-sm text-blue-700">
+                        First time borrower — repayment rate set to neutral (0.75).
+                        Not penalised for no history.
+                      </div>
+                    ) : (
+                      <>
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-1">
+                            Repayment Track Record
+                          </label>
+                          <select
+                            name="on_time_repayment_rate"
+                            value={formData.on_time_repayment_rate}
+                            onChange={handleChange}
+                            className="w-full border border-gray-300 p-3 rounded-lg text-sm
+                                       focus:outline-none focus:ring-2 focus:ring-[#7A4988]"
+                          >
+                            <option value="1.00">Excellent — all loans repaid on time</option>
+                            <option value="0.85">Good — mostly on time</option>
+                            <option value="0.75">Average — some late payments</option>
+                            <option value="0.60">Poor — often late</option>
+                            <option value="0.40">Very poor — rarely repays on time</option>
+                          </select>
+                        </div>
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-1">
+                            Ever Defaulted on a Loan?
+                          </label>
+                          <div className="flex gap-3">
+                            {["0", "1"].map((val) => (
+                              <button
+                                key={val}
+                                type="button"
+                                onClick={() =>
+                                  handleChange({ target: { name: "ever_defaulted", value: val } })
+                                }
+                                className={`flex-1 py-2 rounded-lg border text-sm font-medium transition ${
+                                  formData.ever_defaulted === val
+                                    ? val === "1"
+                                      ? "bg-red-600 text-white border-red-600"
+                                      : "bg-green-600 text-white border-green-600"
+                                    : "border-gray-300 text-gray-600 hover:bg-gray-50"
+                                }`}>
+                                {val === "1" ? "Yes — defaulted" : "No — clean"}
+                              </button>
+                            ))}
                           </div>
                         </div>
-                      );
-                    })
-                  )}
+                      </>
+                    )}
+                  </div>
+                </div>
+              </>
+            )}
 
-                  {loans.length > 0 && (
-                    <div className="pt-3 border-t border-gray-50 grid grid-cols-3 gap-2 text-center">
+            {/* STEP 5: DECISION */}
+            {step === 5 && (
+              <>
+                {!result ? (
+                  <div className="text-center py-8">
+                    <div className="text-5xl mb-4">📋</div>
+                    <h3 className="text-xl font-semibold mb-2">Ready to Score</h3>
+                    <p className="text-gray-500 text-sm mb-6">
+                      All details collected for{" "}
+                      <strong>{formData.full_name || "this rider"}</strong>. Click
+                      Submit to run the credit scoring pipeline.
+                    </p>
+                    <div className="bg-gray-50 rounded-xl p-4 text-left space-y-2 text-sm mb-6">
                       {[
-                        { label: "Approved", val: totalApproved, color: "#166534", bg: "#dcfce7" },
-                        { label: "Review", val: totalReview, color: "#854d0e", bg: "#fef9c3" },
-                        { label: "Declined", val: totalDeclined, color: "#991b1b", bg: "#fee2e2" },
-                      ].map((s) => (
-                        <div key={s.label} className="rounded-lg py-2"
-                          style={{ backgroundColor: s.bg }}>
-                          <p className="text-lg font-bold" style={{ color: s.color }}>{s.val}</p>
-                          <p className="text-xs" style={{ color: s.color, opacity: 0.8 }}>
-                            {s.label}
-                          </p>
+                        ["Rider", formData.full_name],
+                        ["Segment", formData.rider_segment],
+                        ["Amount Requested", `KES ${fmt(parseFloat(formData.requested_amount || 0))}`],
+                        ["Daily Income", `KES ${fmt(parseFloat(formData.avg_daily_income || 0))}`],
+                        ["Prior Loans", formData.total_loans_taken === "0"
+                          ? "First time borrower"
+                          : formData.total_loans_taken],
+                      ].map(([label, val]) => (
+                        <div key={label} className="flex justify-between">
+                          <span className="text-gray-500">{label}</span>
+                          <span className="font-medium">{val}</span>
                         </div>
                       ))}
                     </div>
-                  )}
-                </div>
-              </div>
-            </div>
+                  </div>
+                ) : (
+                  <div className="space-y-5">
+                    <h3 className="text-lg font-semibold">
+                      Credit Decision — {result.rider_name ?? formData.full_name}
+                    </h3>
 
-            {/* ── BOTTOM ROW: Monthly Chart + Activity Feed ──────────────── */}
-            <div className="grid lg:grid-cols-5 gap-4">
+                    {result.decision && (
+                      <div className={`rounded-xl p-4 border ${getDecisionStyle(result.decision)}`}>
+                        <p className="font-bold text-base">
+                          {getDecisionEmoji(result.decision)} {result.decision}
+                        </p>
+                        {result.reason && <p className="text-sm mt-1">{result.reason}</p>}
+                      </div>
+                    )}
 
-              {/* MONTHLY VOLUME CHART — 3 cols */}
-              <div className="lg:col-span-3 bg-white rounded-xl border border-gray-100">
-                <div className="px-5 py-4 border-b border-gray-50">
-                  <h2 className="font-bold text-gray-900 text-sm">Monthly Volume</h2>
-                  <p className="text-xs text-gray-400 mt-0.5">Applications scored per month</p>
-                </div>
-                <div className="px-5 py-5">
-                  {loans.length === 0 ? (
-                    <p className="text-center text-gray-400 text-sm py-10">
-                      No data yet — submit your first application
-                    </p>
-                  ) : (
-                    <div className="flex items-end gap-3 h-36">
-                      {monthlyData.map((m) => {
-                        const heightPct = maxMonthly > 0
-                          ? Math.max((m.count / maxMonthly) * 100, m.count > 0 ? 8 : 0)
-                          : 0;
-                        return (
-                          <div key={m.label}
-                            className="flex-1 flex flex-col items-center gap-1.5 group">
-                            <span className="text-xs font-bold text-gray-700 opacity-0 group-hover:opacity-100 transition-opacity">
-                              {m.count}
-                            </span>
-                            <div
-                              className="w-full rounded-t-md transition-all duration-500 cursor-default"
-                              style={{
-                                height: `${heightPct}%`,
-                                backgroundColor: m.count > 0 ? "#235347" : "#e5e7eb",
-                                minHeight: "4px",
-                              }}
-                              title={`${m.label}: ${m.count} application${m.count !== 1 ? "s" : ""}`}
-                            />
-                            <span className="text-xs text-gray-400">{m.label}</span>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              {/* ACTIVITY FEED — 2 cols */}
-              <div className="lg:col-span-2 bg-white rounded-xl border border-gray-100">
-                <div className="px-5 py-4 border-b border-gray-50">
-                  <h2 className="font-bold text-gray-900 text-sm">Recent Decisions</h2>
-                  <p className="text-xs text-gray-400 mt-0.5">Live activity feed</p>
-                </div>
-                <div className="overflow-y-auto" style={{ maxHeight: "220px" }}>
-                  {recent.length === 0 ? (
-                    <p className="text-center text-gray-400 text-sm py-10">No activity yet</p>
-                  ) : (
-                    <div className="divide-y divide-gray-50">
-                      {recent.map((loan, i) => {
-                        const dc = decisionColor(loan.decision ?? "");
-                        return (
-                          <div key={i} className="px-5 py-3 flex items-center gap-3">
-                            <span className="w-2 h-2 rounded-full flex-shrink-0"
-                              style={{ backgroundColor: dc.text }} />
-                            <div className="flex-1 min-w-0">
-                              <p className="text-xs font-semibold text-gray-800 truncate">
-                                {loan.rider_name}
-                              </p>
-                              <p className="text-xs text-gray-400 mt-0.5 truncate">
-                                {decisionEmoji(loan.decision)} {loan.decision} ·{" "}
-                                KES {fmt(loan.recommendation?.recommended_amount ?? 0)}
-                              </p>
-                            </div>
-                            <p className="text-[10px] text-gray-400 flex-shrink-0">
-                              {new Date(loan.applied_at).toLocaleTimeString("en-KE", {
-                                hour: "2-digit", minute: "2-digit"
-                              })}
+                    {result.scoring && (
+                      <div className="bg-white border rounded-xl p-5">
+                        <div className="flex items-center justify-between mb-4">
+                          <div>
+                            <p className="text-4xl font-bold text-gray-900">
+                              {Math.round((1 - result.scoring.pd_score) * 100)}
+                              <span className="text-lg font-normal text-gray-400">/100</span>
+                            </p>
+                            <p className="text-sm text-gray-500 mt-1">
+                              Default probability: {result.scoring.pd_percentage}
+                            </p>
+                            <p className="text-xs text-gray-400 mt-0.5">
+                              XGB: {(result.scoring.xgb_probability * 100).toFixed(1)}% ·{" "}
+                              LGB: {(result.scoring.lgb_probability * 100).toFixed(1)}%
                             </p>
                           </div>
-                        );
-                      })}
-                    </div>
-                  )}
-                </div>
-              </div>
-            </div>
+                          {(() => {
+                            const tier = getRiskTier(result.scoring.pd_score);
+                            return (
+                              <span className={`px-4 py-2 rounded-full border font-medium text-sm ${getRiskColor(tier)}`}>
+                                {getRiskEmoji(tier)} {tier}
+                              </span>
+                            );
+                          })()}
+                        </div>
+                        <div className="w-full bg-gray-100 rounded-full h-3">
+                          <div
+                            className="h-3 rounded-full transition-all duration-700"
+                            style={{
+                              width: `${Math.round((1 - result.scoring.pd_score) * 100)}%`,
+                              backgroundColor: result.scoring.pd_score < 0.35 ? "#057a55" : result.scoring.pd_score < 0.50 ? "#c27803" : "#e02424",
+                            }}
+                          />
+                        </div>
+                      </div>
+                    )}
 
-            {/* ── EMPTY STATE CTA ────────────────────────────────────────── */}
-            {loans.length === 0 && (
-              <div className="bg-white rounded-xl border border-dashed border-gray-200 p-10 text-center">
-                <p className="text-4xl mb-4">🏍️</p>
-                <h3 className="font-bold text-gray-900 text-lg">No applications yet</h3>
-                <p className="text-gray-500 text-sm mt-2 max-w-xs mx-auto">
-                  Score your first rider to start seeing KPIs, risk distribution,
-                  and activity here.
-                </p>
-                <button
-                  onClick={() => navigate("/new-application")}
-                  disabled={!apiOnline}
-                  className="mt-5 px-6 py-2.5 rounded-lg text-white text-sm font-semibold
-                             transition-all disabled:opacity-40"
-                  style={{ backgroundColor: "#235347" }}
-                  onMouseEnter={(e) => e.currentTarget.style.backgroundColor = "#1a3d32"}
-                  onMouseLeave={(e) => e.currentTarget.style.backgroundColor = "#235347"}>
-                  Score First Rider →
-                </button>
+                    <button
+                      onClick={() => {
+                        setResult(null);
+                        setStep(1);
+                        setFormData(defaultForm);
+                        setReturningRider(null);
+                      }}
+                      className="w-full border border-gray-300 py-3 rounded-xl text-sm font-medium hover:bg-gray-50 transition">
+                      Score Another Rider
+                    </button>
+                  </div>
+                )}
+              </>
+            )}
+
+            {/* ERROR */}
+            {error && (
+              <div className="mt-4 bg-red-50 border border-red-200 rounded-lg px-4 py-3 text-red-700 text-sm whitespace-pre-line">
+                {error}
               </div>
             )}
+
+            {/* NAV BUTTONS */}
+            <div className="flex justify-between mt-8">
+              <button
+                onClick={prevStep}
+                disabled={step === 1 || (step === 5 && !!result)}
+                className="px-5 py-2 border border-gray-300 rounded-lg text-sm font-medium disabled:opacity-40 hover:bg-gray-50 transition">
+                Back
+              </button>
+
+              {step < 4 && (
+                <button
+                  onClick={nextStep}
+                  className="px-6 py-2 bg-[#235347] text-white rounded-lg text-sm font-medium hover:bg-purple-800 transition">
+                  Next →
+                </button>
+              )}
+
+              {step === 4 && (
+                <button
+                  onClick={nextStep}
+                  className="px-6 py-2 bg-[#235347] text-white rounded-lg text-sm font-medium hover:bg-purple-800 transition">
+                  Review & Submit →
+                </button>
+              )}
+
+              {step === 5 && !result && (
+                <button
+                  onClick={handleSubmit}
+                  disabled={loading}
+                  className="px-6 py-2 bg-black text-white rounded-lg text-sm font-medium disabled:opacity-60 hover:bg-gray-800 transition flex items-center gap-2">
+                  {loading ? (
+                    <>
+                      <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                      Scoring...
+                    </>
+                  ) : (
+                    "Submit for Scoring"
+                  )}
+                </button>
+              )}
+            </div>
           </div>
-          {/* END SCROLL BODY */}
-        </div>
-        {/* END MAIN CONTENT */}
+        </main>
       </div>
-      {/* END BODY ROW */}
-    </div>
+    </ErrorBoundary>
   );
 }
