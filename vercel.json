@@ -11,9 +11,16 @@
   ],
   "routes": [
     {
-      "src": "/[^.]+",
-      "dest": "/",
-      "status": 200
+      "src": "^/assets/(.*)",
+      "dest": "/assets/$1"
+    },
+    {
+      "src": "^/(.*\\.(js|css|png|jpg|svg|ico|json|woff|woff2|ttf))",
+      "dest": "/$1"
+    },
+    {
+      "src": ".*",
+      "dest": "/index.html"
     }
   ],
   "build": {
