@@ -430,7 +430,7 @@ export default function Portfolio() {
 
               {filtered.length === 0 ? (
                 <div className="py-16 text-center text-gray-400">
-                  <p className="text-3xl mb-3">📭</p>
+                  
                   <p className="text-sm">No loans yet</p>
                   <Link
                     to="/new-application"

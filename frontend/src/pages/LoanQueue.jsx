@@ -153,7 +153,7 @@ export default function LoanQueue() {
           to="/new-application"
           className="text-xs px-3 py-1.5 rounded-lg text-white no-underline"
           style={{ backgroundColor: "#235347" }}>
-          + New
+           New
         </Link>
       </div>
 
@@ -337,7 +337,7 @@ export default function LoanQueue() {
               {/* TABLE */}
               {filtered.length === 0 ? (
                 <div className="bg-white border border-gray-100 rounded-xl p-16 text-center text-gray-400 shadow-sm">
-                  <div className="text-5xl mb-4">📭</div>
+                  <div className="text-5xl mb-4"></div>
                   <p className="font-medium">No applications here</p>
                   <p className="text-sm mt-1">
                     {filter === "ALL"
@@ -416,7 +416,7 @@ export default function LoanQueue() {
             <aside className="hidden md:flex w-96 bg-white border-l border-gray-100 flex-col flex-shrink-0 overflow-y-auto">
               {!selectedApp ? (
                 <div className="flex flex-col items-center justify-center h-full text-gray-400">
-                  <div className="text-4xl mb-3">👆</div>
+                  <div className="text-4xl mb-3"></div>
                   <p className="text-sm">Select a row to inspect</p>
                 </div>
               ) : (
@@ -472,7 +472,7 @@ export default function LoanQueue() {
                     <div className="space-y-1">
                       {selectedApp.fairness.warnings.map((w, i) => (
                         <div key={i} className="text-xs text-amber-700 flex gap-2">
-                          <span>⚠️</span>
+                          <span></span>
                           <span>{w.check} — {w.detail}</span>
                         </div>
                       ))}
@@ -493,7 +493,7 @@ export default function LoanQueue() {
                             ? "bg-emerald-600 text-white border-emerald-600 cursor-default"
                             : "border-emerald-300 text-emerald-700 hover:bg-emerald-50"
                         }`}>
-                        ✅ Approve
+                         Approve
                       </button>
                       <button
                         onClick={() => handleOverride("DECLINED")}
@@ -503,7 +503,7 @@ export default function LoanQueue() {
                             ? "bg-red-600 text-white border-red-600 cursor-default"
                             : "border-red-300 text-red-700 hover:bg-red-50"
                         }`}>
-                        🚫 Decline
+                         Decline
                       </button>
                     </div>
 
