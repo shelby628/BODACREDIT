@@ -7,6 +7,9 @@ import os
 import warnings
 from datetime import datetime, timedelta
 from typing import Optional
+from fastapi.responses import JSONResponse
+from fastapi import Response, Request, Cookie
+
 
 import uvicorn
 from fastapi import Depends, FastAPI, HTTPException, status
@@ -55,9 +58,8 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    # Locked to your frontend only — no longer wildcard "*"
-    allow_origins=[FRONTEND_URL],
-    allow_credentials=True,
+    allow_origins=["https://creditscorebodaboda.vercel.app"],  # your exact Vercel URL
+    allow_credentials=True,  # ← MUST be True for cookies
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -115,12 +117,18 @@ def create_access_token(data: dict) -> str:
     payload["exp"] = datetime.utcnow() + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
     return jwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM)
 
-async def get_current_user(token: str = Depends(oauth2_scheme)) -> dict:
+# Replace your get_current_user function with this:
+async def get_current_user(request: Request) -> dict:
+    token = request.cookies.get("bodacredit_token")
+    
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
-        detail="Invalid or expired token. Please log in again.",
-        headers={"WWW-Authenticate": "Bearer"},
+        detail="Invalid or expired session. Please log in again.",
     )
+    
+    if not token:
+        raise credentials_exception
+    
     try:
         payload  = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
         username = payload.get("sub")
@@ -285,12 +293,8 @@ def health():
     }
 
 
-@app.post("/auth/login", response_model=TokenResponse)
-def login(form_data: OAuth2PasswordRequestForm = Depends()):
-    """
-    Login endpoint. Accepts username + password, returns a JWT token.
-    The frontend stores this token and sends it as a Bearer header on every request.
-    """
+@app.post("/auth/login")
+def login(response: Response, form_data: OAuth2PasswordRequestForm = Depends()):
     user = authenticate_user(form_data.username, form_data.password)
     if not user:
         raise HTTPException(
@@ -304,12 +308,25 @@ def login(form_data: OAuth2PasswordRequestForm = Depends()):
         "sacco_id": user["sacco_id"],
     })
 
+    # Set token as httpOnly cookie instead of returning it in body
+    response.set_cookie(
+        key="bodacredit_token",
+        value=token,
+        httponly=True,        # JS cannot read this
+        secure=True,          # HTTPS only
+        samesite="lax",       # CSRF protection
+        max_age=60 * 60 * 8,  # 8 hours
+    )
+
     return {
-        "access_token": token,
-        "token_type":   "bearer",
         "officer_name": user["full_name"],
         "sacco_id":     user["sacco_id"],
     }
+# logout endpoint that clears the cookie
+@app.post("/auth/logout")
+def logout(response: Response):
+    response.delete_cookie("bodacredit_token")
+    return {"message": "Logged out"}
 
 
 # ─────────────────────────────────────────────

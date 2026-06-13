@@ -233,12 +233,12 @@ export default function NewApplication() {
         previous_loan_count:     returningRider?.loanCount || 0,
       };
 
-      const token = localStorage.getItem("bodacredit_token");
       const response = await fetch(`${API_URL}/score`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
-        body: JSON.stringify(payload),
-      });
+  method:  "POST",
+  headers: { "Content-Type": "application/json" },
+  body:    JSON.stringify(payload),
+  credentials: "include", // cookie sent automatically
+});
 
       const data = await response.json();
 

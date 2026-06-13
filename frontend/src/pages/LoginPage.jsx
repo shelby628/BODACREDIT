@@ -32,6 +32,7 @@ export default function LoginPage() {
         method:  "POST",
         headers: { "Content-Type": "application/x-www-form-urlencoded" },
         body:    form.toString(),
+        credentials: "include",
       });
 
       const data = await response.json();
@@ -43,13 +44,11 @@ export default function LoginPage() {
 
       // Store token + officer info in AuthContext (and localStorage)
       login({
-        access_token: data.access_token,
-        officer_name: data.officer_name,
-        sacco_id:     data.sacco_id,
-      });
+  officer_name: data.officer_name,
+  sacco_id:     data.sacco_id,
+});
 
-      // Redirect to dashboard
-      navigate("/dashboard", { replace: true });
+navigate("/dashboard", { replace: true });
 
     } catch (err) {
       console.error("Login error:", err);

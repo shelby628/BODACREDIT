@@ -1,58 +1,56 @@
-import { createContext, useContext, useState } from "react";
+import { createContext, useContext, useState, useEffect } from "react";
 
 const AuthContext = createContext();
-
-const TOKEN_KEY   = "bodacredit_token";
 const OFFICER_KEY = "bodacredit_officer";
+const API_URL     = "https://bodacredit.onrender.com";
 
-// ── Helpers ────────────────────────────────────────────────────────────────
-const loadFromStorage = () => {
-  try {
-    return {
-      token:   localStorage.getItem(TOKEN_KEY)   ?? null,
-      officer: JSON.parse(localStorage.getItem(OFFICER_KEY) ?? "null"),
-    };
-  } catch {
-    return { token: null, officer: null };
-  }
-};
-
-// ── Provider ───────────────────────────────────────────────────────────────
 export function AuthProvider({ children }) {
-  const [auth, setAuth] = useState(loadFromStorage);
+  const [officer, setOfficer] = useState(() => {
+    try {
+      return JSON.parse(localStorage.getItem(OFFICER_KEY) ?? "null");
+    } catch { return null; }
+  });
 
-  /**
-   * Called after a successful /auth/login response.
-   * Stores the token and officer profile in both state and localStorage
-   * so they survive a page refresh.
-   */
-  const login = ({ access_token, officer_name, sacco_id }) => {
-    const officer = { name: officer_name, sacco_id };
-    localStorage.setItem(TOKEN_KEY,   access_token);
-    localStorage.setItem(OFFICER_KEY, JSON.stringify(officer));
-    setAuth({ token: access_token, officer });
+  // On app load, verify session is still valid with backend
+  useEffect(() => {
+    fetch(`${API_URL}/me`, {
+      credentials: "include", // sends the httpOnly cookie automatically
+    })
+      .then((r) => r.ok ? r.json() : null)
+      .then((data) => {
+        if (data) {
+          const o = { name: data.full_name, sacco_id: data.sacco_id };
+          setOfficer(o);
+          localStorage.setItem(OFFICER_KEY, JSON.stringify(o));
+        } else {
+          // Session expired or invalid
+          setOfficer(null);
+          localStorage.removeItem(OFFICER_KEY);
+        }
+      })
+      .catch(() => {});
+  }, []);
+
+  const login = ({ officer_name, sacco_id }) => {
+    // No token to store — cookie is set by backend automatically
+    const o = { name: officer_name, sacco_id };
+    setOfficer(o);
+    localStorage.setItem(OFFICER_KEY, JSON.stringify(o)); // only non-sensitive profile info
   };
 
-  /**
-   * Clears everything — token, officer profile, loan data.
-   * Redirecting to /login is handled by the caller (usually a logout button).
-   */
-  const logout = () => {
-    localStorage.removeItem(TOKEN_KEY);
+  const logout = async () => {
+    await fetch(`${API_URL}/auth/logout`, {
+      method:      "POST",
+      credentials: "include", // sends cookie so backend can clear it
+    });
+    setOfficer(null);
     localStorage.removeItem(OFFICER_KEY);
-    setAuth({ token: null, officer: null });
   };
 
-  const isAuthenticated = !!auth.token;
+  const isAuthenticated = !!officer;
 
   return (
-    <AuthContext.Provider value={{
-      token:           auth.token,
-      officer:         auth.officer,
-      isAuthenticated,
-      login,
-      logout,
-    }}>
+    <AuthContext.Provider value={{ officer, isAuthenticated, login, logout }}>
       {children}
     </AuthContext.Provider>
   );
