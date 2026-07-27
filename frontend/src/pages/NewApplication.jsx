@@ -135,6 +135,9 @@ export default function NewApplication() {
   const [returningRider, setReturningRider] = useState(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [apiOnline, setApiOnline] = useState(null);
+  const [statementText, setStatementText] = useState("");
+  const [parsingStatement, setParsingStatement] = useState(false);
+  const [parseError, setParseError] = useState(null);
   const { addApplication } = useLoanContext();
 
   // API health check
@@ -201,6 +204,43 @@ export default function NewApplication() {
   const nextStep = () => { setError(null); setStep((s) => Math.min(s + 1, 5)); };
   const prevStep = () => { setError(null); setStep((s) => Math.max(s - 1, 1)); };
 
+  // ── Parse M-Pesa Statement ────────────────────────────────────────────
+const handleParseStatement = async () => {
+  setParseError(null);
+
+  if (!statementText.trim()) {
+    setParseError("Please paste the rider's M-Pesa statement text first.");
+    return;
+  }
+
+  setParsingStatement(true);
+  try {
+    const response = await fetch(`${import.meta.env.VITE_API_URL}/parse-statement`, {
+      method:      "POST",
+      headers:     { "Content-Type": "application/json" },
+      body:        JSON.stringify({ raw_text: statementText }),
+      credentials: "include",
+    });
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      setParseError(data.detail ?? "Could not parse statement.");
+      return;
+    }
+
+    setFormData((prev) => ({
+      ...prev,
+      avg_daily_income: String(data.avg_daily_income),
+    }));
+
+  } catch (err) {
+    console.error("Statement parse error:", err);
+    setParseError("Cannot connect to server. Is the backend running?");
+  } finally {
+    setParsingStatement(false);
+  }
+};
   // ── Submit ─────────────────────────────────────────────────────────────
   const handleSubmit = async () => {
     setError(null);
@@ -656,6 +696,32 @@ export default function NewApplication() {
                     <p className="text-sm text-gray-500 mb-5">
                       From the rider's M-Pesa statement — last 90 days.
                     </p>
+                    <div className="bg-gray-50 border border-gray-200 rounded-xl p-4 mb-5 space-y-3">
+  <label className="block text-sm font-medium text-gray-700">
+    Paste M-Pesa Statement (optional — auto-fills income below)
+  </label>
+  <textarea
+    value={statementText}
+    onChange={(e) => setStatementText(e.target.value)}
+    placeholder="Paste the rider's M-Pesa SMS statement text here..."
+    rows={5}
+    className="w-full border border-gray-300 p-3 rounded-lg text-xs font-mono
+               focus:outline-none focus:ring-2 focus:ring-[#235347]"
+  />
+  <button
+    type="button"
+    onClick={handleParseStatement}
+    disabled={parsingStatement}
+    className="px-4 py-2 rounded-lg text-white text-sm font-semibold
+               disabled:opacity-60"
+    style={{ backgroundColor: "#235347" }}
+  >
+    {parsingStatement ? "Parsing..." : "Parse Statement"}
+  </button>
+  {parseError && (
+    <p className="text-sm text-red-600">{parseError}</p>
+  )}
+</div>
                     <div className="space-y-5">
                       <div>
                         <label className="block text-sm font-medium text-gray-700 mb-1">

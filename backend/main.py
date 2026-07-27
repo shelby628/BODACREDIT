@@ -30,6 +30,7 @@ from pipeline.scoring import (
     validate_rider_data,
 )
 from pipeline.fairness import run_fairness_checks
+from pipeline.mpesa_parser import parse_statement
 
 
 # ─────────────────────────────────────────────
@@ -181,6 +182,9 @@ class ApplicationRequest(BaseModel):
     ever_defaulted:       int
     active_digital_loans: int
     first_time_borrower:  int
+
+class StatementRequest(BaseModel):
+    raw_text: str    
 
 
 class TokenResponse(BaseModel):
@@ -350,6 +354,37 @@ def score_application(
     application: ApplicationRequest,
     current_user: dict = Depends(get_current_user),   # ← protected
 ):
+    """Score a loan application.
+    Requires a valid Bearer token — unauthenticated requests return 401.
+    The current_user is available here if you want to attach sacco_id to the record.
+    """
+    try:
+        result = run_full_pipeline(application)
+        # Attach the scoring officer's SACCO so records are scoped correctly
+        result["scored_by"] = current_user["username"]
+        result["sacco_id"] = current_user["sacco_id"]
+        return result
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Scoring pipeline error: {str(e)}",
+        )
+
+@app.post("/parse-statement")
+def parse_mpesa_statement(
+    payload: StatementRequest,
+    current_user: dict = Depends(get_current_user),
+):
+    """Parse a pasted M-Pesa statement into income/expense summary. Officers only."""
+    try:
+        return parse_statement(payload.raw_text)
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Statement parsing error: {str(e)}",
+        )    
     """
     Score a loan application.
     Requires a valid Bearer token — unauthenticated requests return 401.
