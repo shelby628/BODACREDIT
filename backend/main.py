@@ -318,7 +318,7 @@ def login(response: Response, form_data: OAuth2PasswordRequestForm = Depends()):
         value=token,
         httponly=True,        # JS cannot read this
         secure=True,          # HTTPS only
-        samesite="lax",       # CSRF protection
+        samesite="none",       # CSRF protection
         max_age=60 * 60 * 8,  # 8 hours
     )
 
