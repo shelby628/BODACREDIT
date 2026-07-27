@@ -58,7 +58,7 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["https://creditscorebodaboda.vercel.app"],  # your exact Vercel URL
+    allow_origins=["https://creditscorebodaboda.vercel.app", "http://localhost:5173"],
     allow_credentials=True,  # ← MUST be True for cookies
     allow_methods=["*"],
     allow_headers=["*"],
