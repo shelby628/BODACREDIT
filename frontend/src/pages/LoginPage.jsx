@@ -1,15 +1,24 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { useSearchParams } from "react-router-dom";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 
 const API_URL = "https://bodacredit.onrender.com";
 export default function LoginPage() {
   const navigate              = useNavigate();
-  const { login }             = useAuth();
-  const [username, setUsername] = useState("");
-  const [password, setPassword] = useState("");
-  const [error,    setError]    = useState(null);
-  const [loading,  setLoading]  = useState(false);
+const [searchParams]        = useSearchParams();
+const { login }             = useAuth();
+const [username, setUsername] = useState("");
+const [password, setPassword] = useState("");
+const [error,    setError]    = useState(null);
+const [loading,  setLoading]  = useState(false);
+
+useEffect(() => {
+  if (searchParams.get("demo") === "true") {
+    setUsername("admin");
+    setPassword("ADMIN123");
+  }
+}, []);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -92,6 +101,18 @@ navigate("/dashboard", { replace: true });
           <p className="text-gray-400 text-sm mb-7">
             Enter your loan officer credentials to continue.
           </p>
+          <button
+  type="button"
+  onClick={() => {
+    setUsername("admin");
+    setPassword("ADMIN123");
+  }}
+  className="w-full py-2.5 mb-5 rounded-lg text-sm font-semibold border-2
+             transition-all"
+  style={{ borderColor: "#235347", color: "#235347" }}
+>
+  Try Demo
+</button>
 
           {/* FORM */}
           <form onSubmit={handleSubmit} className="space-y-4">

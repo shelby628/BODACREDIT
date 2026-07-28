@@ -256,6 +256,15 @@ export default function LandingPage() {
               >
                 Start Scoring Riders →
               </button>
+              <button
+  onClick={() => navigate("/login?demo=true")}
+  disabled={apiStatus !== "online"}
+  className="px-8 py-3.5 rounded-lg font-semibold text-sm transition-all
+             border border-white/30 text-white hover:bg-white/10
+             disabled:opacity-40 disabled:cursor-not-allowed"
+>
+  Try Demo
+</button>
               <a href="#how"
                 className="px-8 py-3.5 rounded-lg font-semibold text-sm transition-all
                            border border-white/30 text-white hover:bg-white/10">
