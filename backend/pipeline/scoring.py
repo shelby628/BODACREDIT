@@ -341,7 +341,18 @@ def calculate_loan_recommendation(rider_features, scoring_result,
     if max_repaid > 0:
         recommended_amount = min(recommended_amount, max_repaid * 1.5)
 
-    recommended_amount = max(recommended_amount, 3000)
+    MIN_LOAN = 3000
+    if recommended_amount < MIN_LOAN:
+        return {
+            "recommended_amount":    0,
+            "recommended_term_days": 0,
+            "monthly_repayment":     0,
+            "daily_repayment":       0,
+            "decision":              "DECLINE",
+            "decline_reason":        "Repayment capacity too low for the minimum loan size",
+            "condition":             None,
+        }
+
     recommended_amount = round(recommended_amount / 500) * 500
     recommended_amount = min(recommended_amount, requested_amount)
 

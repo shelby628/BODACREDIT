@@ -204,7 +204,6 @@ def build_raw_features(application: ApplicationRequest):
         "rider_segment":           application.rider_segment,
         "bike_ownership":          application.bike_ownership,
         "loan_purpose":            application.loan_purpose,
-        "has_app":                 application.has_app,
         "is_sacco_member":         application.is_sacco_member,
         "sacco_tenure_months":     application.sacco_tenure_months,
         "sacco_contribution_rate": application.sacco_contribution_rate,
@@ -213,6 +212,8 @@ def build_raw_features(application: ApplicationRequest):
         "ever_defaulted":          application.ever_defaulted,
         "active_digital_loans":    application.active_digital_loans,
         "first_time_borrower":     application.first_time_borrower,
+        "bike_owned": 1 if application.bike_ownership == "Owned" else 0,
+        "has_app":    1 if application.rider_segment in ("App Rider", "Hybrid Rider") else 0,
     }
 
 
