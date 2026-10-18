@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 
 let bodaImage = null;
 try {
-  bodaImage = new URL("./assets/bodarider.jpg", import.meta.url).href;
+  bodaImage = new URL("../assets/bodarider.jpg", import.meta.url).href;
 } catch {
   bodaImage = null;
 }
@@ -315,32 +315,32 @@ export default function LandingPage() {
           <div className="grid md:grid-cols-3 gap-8 mt-16">
             {[
               {
-                num: "01", icon: "🔍",
+                num: "01", icon: "",
                 title: "Explainable Decisions",
                 desc: "Every credit score comes with a plain-English breakdown of the key factors that drove it. Loan officers understand exactly why a rider was approved or declined — no black box.",
               },
               {
-                num: "02", icon: "⚖️",
+                num: "02", icon: "",
                 title: "Built-in Fairness",
                 desc: "9 automated fairness checks run on every application. Seasonal income dips (rain season) are not penalised. First-time borrowers are not treated as high risk by default.",
               },
               {
-                num: "03", icon: "🧠",
+                num: "03", icon: "",
                 title: "Rider Memory",
                 desc: "Returning riders are recognised by National ID. Their full history pre-fills automatically. The system knows them — so the loan officer doesn't have to start from scratch.",
               },
               {
-                num: "04", icon: "📱",
+                num: "04", icon: "",
                 title: "Income Verification",
                 desc: "M-Pesa statement analysis calculates Net Disposable Income automatically. Fuel costs, hire fees, and household expenses are factored in — giving a realistic picture of repayment capacity.",
               },
               {
-                num: "05", icon: "⚙️",
+                num: "05", icon: "",
                 title: "Dual ML Engine",
                 desc: "XGBoost and LightGBM run in parallel. Their probability scores are ensembled for a more stable prediction. AUC of 0.82 on historical boda rider lending data.",
               },
               {
-                num: "06", icon: "⚡",
+                num: "06", icon: "",
                 title: "Under 30 Seconds",
                 desc: "From the moment a loan officer clicks Submit, the full credit decision — score, risk tier, recommended amount, and daily M-Pesa repayment — is returned in under 30 seconds.",
               },

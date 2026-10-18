@@ -93,6 +93,14 @@ navigate("/dashboard", { replace: true });
               <p className="text-gray-400 text-xs mt-0.5">Underwriting System</p>
             </div>
           </div>
+          {/* BACK BUTTON */}
+<button
+  onClick={() => navigate("/")}
+  className="flex items-center gap-1.5 text-xs text-gray-400 
+             hover:text-[#235347] transition-colors mb-6"
+>
+  ← Back to Home
+</button>
 
           {/* HEADING */}
           <h1 className="text-2xl font-bold text-gray-900 mb-1">
