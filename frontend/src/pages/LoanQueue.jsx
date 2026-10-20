@@ -73,6 +73,21 @@ const getOffer = (app) => ({
   term:   app.recommendation?.recommended_term_days ?? null,
   daily:  app.recommendation?.daily_repayment ?? app.daily_repayment ?? null,
 });
+// Finds the same rider's most recent earlier application (matched by National ID)
+const getPreviousApp = (app, all) => {
+  if (!app.national_id) return null;
+  const when = (a) => new Date(a.submitted_at ?? a.applied_at).getTime();
+  const earlier = all
+    .filter(
+      (a) =>
+        a.id !== app.id &&
+        a.national_id === app.national_id &&
+        when(a) < when(app) &&
+        a.avg_daily_income > 0
+    )
+    .sort((a, b) => when(b) - when(a));
+  return earlier[0] ?? null;
+};
 
 // ── Sidebar nav item (matches Dashboard) ──────────────────────────────────
 const NavItem = ({ to, active, icon, children, onClick }) => (
@@ -503,6 +518,46 @@ export default function LoanQueue() {
                       </div>
                     ))}
                   </div>
+                  {/* Income comparison for returning riders */}
+{(() => {
+  const prev = getPreviousApp(selectedApp, applications);
+  if (!prev) return null;
+
+  const before = prev.avg_daily_income;
+  const now    = selectedApp.avg_daily_income;
+  const change = ((now - before) / before) * 100;
+
+  let note  = "Within normal variation.";
+  let style = "bg-gray-50 border-gray-200 text-gray-700";
+  if (change <= -25) {
+    note  = "Large drop. Ask about breakdown, illness or bike change.";
+    style = "bg-amber-50 border-amber-200 text-amber-800";
+  } else if (change >= 40) {
+    note  = "Large jump. Check the statement for loans or transfers counted as income.";
+    style = "bg-amber-50 border-amber-200 text-amber-800";
+  }
+
+  return (
+    <div className={`rounded-lg border p-3 text-xs ${style}`}>
+      <p className="uppercase tracking-wide text-[10px] opacity-70 mb-1">
+        Income vs last application
+      </p>
+      <p className="font-semibold text-sm">
+        KES {fmt(before)} → KES {fmt(now)}/day
+        <span className="ml-2">
+          ({change > 0 ? "+" : ""}{change.toFixed(0)}%)
+        </span>
+      </p>
+      <p className="mt-1">{note}</p>
+      <p className="mt-1 opacity-60">
+        Last applied{" "}
+        {new Date(prev.submitted_at ?? prev.applied_at).toLocaleDateString("en-KE", {
+          day: "numeric", month: "short", year: "numeric",
+        })}
+      </p>
+    </div>
+  );
+})()}
 
                   {/* Fairness warnings */}
                   {selectedApp.fairness?.warnings?.length > 0 && (
