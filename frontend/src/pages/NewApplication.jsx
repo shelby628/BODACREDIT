@@ -1050,7 +1050,40 @@ const handleParseStatement = async () => {
                             </div>
                           </div>
                         )}
-
+                         {result.recommendation && result.recommendation.recommended_amount > 0 && (
+  <div className="bg-white border rounded-xl p-5 space-y-2 text-sm">
+    <p className="font-medium text-gray-700 mb-2">Recommended offer</p>
+    <div className="flex justify-between">
+      <span className="text-gray-500">Requested</span>
+      <span className="font-semibold">
+        KES {fmt(parseFloat(formData.requested_amount))}
+      </span>
+    </div>
+    <div className="flex justify-between">
+      <span className="text-gray-500">Recommended amount</span>
+      <span className="font-semibold">
+        KES {fmt(result.recommendation.recommended_amount)}
+      </span>
+    </div>
+    <div className="flex justify-between">
+      <span className="text-gray-500">Term</span>
+      <span className="font-semibold">
+        {result.recommendation.recommended_term_days} days
+      </span>
+    </div>
+    <div className="flex justify-between">
+      <span className="text-gray-500">Daily repayment</span>
+      <span className="font-semibold" style={{ color: "#235347" }}>
+        KES {fmt(result.recommendation.daily_repayment)}/day
+      </span>
+    </div>
+    {result.recommendation.condition && (
+      <p className="text-xs text-amber-700 pt-2 border-t">
+        {result.recommendation.condition}
+      </p>
+    )}
+  </div>
+)}
                         <button
                           onClick={() => { setResult(null); setStep(1); setFormData(defaultForm); setReturningRider(null); }}
                           className="w-full border border-gray-300 py-3 rounded-xl text-sm font-medium hover:bg-gray-50 transition">
