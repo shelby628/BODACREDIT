@@ -67,6 +67,12 @@ const getDecisionTextClass = (app) => {
     return "text-red-600 font-semibold";
   return "text-amber-700 font-semibold";
 };
+// Reads the model's offer from a stored application
+const getOffer = (app) => ({
+  amount: app.recommendation?.recommended_amount ?? app.recommended_amount ?? null,
+  term:   app.recommendation?.recommended_term_days ?? null,
+  daily:  app.recommendation?.daily_repayment ?? app.daily_repayment ?? null,
+});
 
 // ── Sidebar nav item (matches Dashboard) ──────────────────────────────────
 const NavItem = ({ to, active, icon, children, onClick }) => (
@@ -376,8 +382,24 @@ export default function LoanQueue() {
                               <p className="text-xs text-gray-400 mt-0.5">{app.rider_segment}</p>
                             </td>
                             <td className="px-4 py-3 text-gray-700">
-                              KES {fmt(app.requested_amount)}
-                            </td>
+  {(() => {
+    const { amount } = getOffer(app);
+    const modelDeclined = ["DECLINE", "DECLINED", "HARD_BLOCK"]
+      .includes((app.decision ?? "").toUpperCase());
+    return (
+      <>
+        <p>KES {fmt(app.requested_amount)}</p>
+        {modelDeclined ? (
+          <p className="text-[11px] text-red-500 mt-0.5">No offer</p>
+        ) : amount != null && amount < app.requested_amount ? (
+          <p className="text-[11px] text-amber-600 mt-0.5">
+            → KES {fmt(amount)} offered
+          </p>
+        ) : null}
+      </>
+    );
+  })()}
+</td>
                             <td className="px-4 py-3">
                               <span className={`px-2 py-1 rounded-full text-xs font-medium ${getRiskColor(app.pd_score)}`}>
                                 {getRiskLabel(app.pd_score)}
@@ -401,8 +423,21 @@ export default function LoanQueue() {
                               })}
                             </td>
                             <td className="px-4 py-3 font-medium" style={{ color: "#235347" }}>
-                              KES {fmt(app.daily_repayment)}/day
-                            </td>
+  {(() => {
+    const { daily, term } = getOffer(app);
+    if (!daily) return <span className="text-gray-300">—</span>;
+    return (
+      <>
+        <p>KES {fmt(daily)}/day</p>
+        {term ? (
+          <p className="text-[11px] text-gray-400 font-normal mt-0.5">
+            over {term} days
+          </p>
+        ) : null}
+      </>
+    );
+  })()}
+</td>
                           </tr>
                         );
                       })}
@@ -453,7 +488,9 @@ export default function LoanQueue() {
                     {[
                       ["Requested",    `KES ${fmt(selectedApp.requested_amount)}`],
                       ["Approved",     `KES ${fmt(selectedApp.recommendation?.recommended_amount ?? selectedApp.recommended_amount)}`],
-                      ["Term",         `${selectedApp.requested_term_days ?? "—"} days`],
+                      ["Term",         selectedApp.recommendation?.recommended_term_days
+                                         ? `${selectedApp.recommendation.recommended_term_days} days`
+                                         : "—"],
                       ["Daily Income", `KES ${fmt(selectedApp.avg_daily_income)}`],
                       ["Daily Repay",  `KES ${fmt(selectedApp.recommendation?.daily_repayment ?? selectedApp.daily_repayment)}`],
                       ["PD Score",     selectedApp.pd_score != null

@@ -210,10 +210,14 @@ export default function NewApplication() {
       if (name === "rider_segment" && value === "Owner Rider") {
         updated.bike_ownership = "Owned";
 }
-      if (name === "is_sacco_member" && value === "1") {
-  updated.sacco_contribution_rate = "0.80";
+      if (name === "is_sacco_member" && value === "0") {
+  updated.sacco_contribution_rate = "0";
+   updated.sacco_tenure_months = "0";
 }
-      return updated;
+        if (name === "is_sacco_member" && value === "1") {
+      updated.sacco_contribution_rate = "0.80";
+    }
+return updated;
     });
   };
     // ... handleChange ends here ...
