@@ -942,7 +942,11 @@ const handleParseStatement = async () => {
                             <p className="font-bold text-base">
                               {getDecisionEmoji(result.decision)} {result.decision}
                             </p>
-                            {result.reason && <p className="text-sm mt-1">{result.reason}</p>}
+                            {(result.recommendation?.decline_reason ?? result.reason) && (
+                             <p className="text-sm mt-1">
+                              {result.recommendation?.decline_reason ?? result.reason}
+                                </p>
+                                  )}
                           </div>
                         )}
 
