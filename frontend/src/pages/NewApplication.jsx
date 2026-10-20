@@ -197,6 +197,9 @@ export default function NewApplication() {
         updated.sacco_tenure_months = "0";
         updated.sacco_contribution_rate = "0";
       }
+      if (name === "rider_segment" && value === "Owner Rider") {
+        updated.bike_ownership = "Owned";
+}
       return updated;
     });
   };
