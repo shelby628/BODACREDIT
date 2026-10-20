@@ -35,6 +35,10 @@ class ErrorBoundary extends Component {
 const fmt = (v) =>
   (typeof v === "number" && !isNaN(v) ? v : 0).toLocaleString();
 
+const blockBadKeys = (e) => {
+  if (["e", "E", "+", "-"].includes(e.key)) e.preventDefault();
+};
+
 const getRiskTier = (pd) =>
   pd < 0.20 ? "LOW"
   : pd < 0.35 ? "LOW-MEDIUM"
@@ -184,9 +188,15 @@ export default function NewApplication() {
     const t = setTimeout(check, 500);
     return () => clearTimeout(t);
   }, [formData.national_id]);
+  
 
   const handleChange = (e) => {
-    const { name, value } = e.target;
+   let { name, value } = e.target;
+
+   if (name === "national_id")  value = value.replace(/\D/g, "").slice(0, 8);
+   if (name === "phone_number") value = value.replace(/[^\d+\s]/g, "").slice(0, 16);
+   if (name === "full_name")    value = value.replace(/[^\p{L}\s'.-]/gu, "").slice(0, 60);
+
     setFormData((prev) => {
       const updated = { ...prev, [name]: value };
       if (name === "total_loans_taken") {
@@ -200,11 +210,53 @@ export default function NewApplication() {
       if (name === "rider_segment" && value === "Owner Rider") {
         updated.bike_ownership = "Owned";
 }
+      if (name === "is_sacco_member" && value === "1") {
+  updated.sacco_contribution_rate = "0.80";
+}
       return updated;
     });
   };
+    // ... handleChange ends here ...
 
-  const nextStep = () => { setError(null); setStep((s) => Math.min(s + 1, 5)); };
+  // ── Validate each step before moving on ──────────────────────────────
+  const validateStep = (s) => {
+    if (s === 1) {
+      if (!/^\d{7,8}$/.test(formData.national_id))
+        return "National ID must be 7 or 8 digits.";
+      if (formData.full_name.trim().split(/\s+/).length < 2)
+        return "Enter at least two names (first and last).";
+      const phone = formData.phone_number.replace(/\s/g, "");
+      if (phone && !/^(?:\+254|254|0)[17]\d{8}$/.test(phone))
+        return "Enter a valid phone number, e.g. 0712 345 678.";
+    }
+    if (s === 2) {
+      const amt = parseFloat(formData.requested_amount);
+      if (!amt || amt < 1000 || amt > 100000)
+        return "Requested amount must be between KES 1,000 and KES 100,000.";
+    }
+    if (s === 3) {
+      const inc = parseFloat(formData.avg_daily_income);
+      if (!inc || inc < 100 || inc > 10000)
+        return "Average daily income must be between KES 100 and KES 10,000.";
+    }
+    if (s === 4) {
+      const tenure = Number(formData.sacco_tenure_months);
+      const loans  = Number(formData.total_loans_taken);
+      if (!Number.isInteger(tenure) || tenure < 0 || tenure > 600)
+        return "SACCO membership months must be a whole number from 0 to 600.";
+      if (!Number.isInteger(loans) || loans < 0 || loans > 50)
+        return "Number of prior loans must be a whole number from 0 to 50.";
+    }
+    return null;
+  };
+
+  
+  const nextStep = () => {
+  const msg = validateStep(step);
+  if (msg) { setError(msg); return; }
+  setError(null);
+  setStep((s) => Math.min(s + 1, 5));
+};
   const prevStep = () => { setError(null); setStep((s) => Math.max(s - 1, 1)); };
 
   // ── Parse M-Pesa Statement ────────────────────────────────────────────
@@ -649,6 +701,7 @@ const handleParseStatement = async () => {
                           placeholder="e.g. 20000"
                           value={formData.requested_amount}
                           onChange={handleChange}
+                          onKeyDown={blockBadKeys}
                           className={inputCls}
                         />
                       </div>
@@ -736,6 +789,7 @@ const handleParseStatement = async () => {
                           placeholder="e.g. 900"
                           value={formData.avg_daily_income}
                           onChange={handleChange}
+                          onKeyDown={blockBadKeys}
                           className={inputCls}
                         />
                         <p className="text-xs text-gray-400 mt-1">
@@ -824,13 +878,13 @@ const handleParseStatement = async () => {
                               <label className="block text-sm font-medium text-gray-700 mb-1">
                                 Months as SACCO Member
                               </label>
-                              <input name="sacco_tenure_months" type="number" placeholder="e.g. 14" value={formData.sacco_tenure_months} onChange={handleChange} className={inputCls} />
+                              <input name="sacco_tenure_months" type="number" placeholder="e.g. 14" value={formData.sacco_tenure_months} onChange={handleChange} onKeyDown={blockBadKeys} className={inputCls} />
                             </div>
                             <div>
                               <label className="block text-sm font-medium text-gray-700 mb-1">
                                 Contribution Discipline
                               </label>
-                              <select name="sacco_contribution_rate" value={formData.sacco_contribution_rate} onChange={handleChange} className={inputCls}>
+                              <select name="sacco_contribution_rate" value={formData.sacco_contribution_rate} onChange={handleChange} onKeyDown={blockBadKeys} className={inputCls}>
                                 <option value="0.95">Excellent — contributes 95%+ of months</option>
                                 <option value="0.80">Good — contributes about 80% of months</option>
                                 <option value="0.65">Fair — contributes about 65% of months</option>

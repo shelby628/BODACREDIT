@@ -165,22 +165,24 @@ print(f"✅ Models loaded — {len(FEATURE_COLS)} features")
 
 class ApplicationRequest(BaseModel):
     rider_id:             str
-    rider_name:           str
-    requested_amount:     float
-    requested_term_days:  int
+    rider_name:           str   = Field(min_length=2, max_length=60,
+                                        pattern=r"^[^\d]+$")
+    national_id:          str   = Field(pattern=r"^\d{7,8}$")
+    requested_amount:    float = Field(ge=1000, le=100000)
+    requested_term_days:  int   = Field(ge=30, le=180)
     application_month:    Optional[int] = None
-    avg_daily_income:     float
+    avg_daily_income:     float = Field(gt=0, le=10000)
     rider_segment:        str
     bike_ownership:       str
     loan_purpose:         str
     has_app:              Optional[int] = 0
     is_sacco_member:      int
-    sacco_tenure_months:  int
-    sacco_contribution_rate: float
-    total_loans_taken:    int
-    on_time_repayment_rate: float
-    ever_defaulted:       int
-    active_digital_loans: int
+    sacco_tenure_months:   int   = Field(ge=0, le=600)
+    sacco_contribution_rate: float = Field(ge=0, le=1)
+    total_loans_taken:    int   = Field(ge=0, le=50)
+    on_time_repayment_rate: float = Field(ge=0, le=1)
+    ever_defaulted:        int   = Field(ge=0, le=1)
+    active_digital_loans: int   = Field(ge=0, le=10)
     first_time_borrower:  int
 
 class StatementRequest(BaseModel):
