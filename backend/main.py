@@ -18,6 +18,8 @@ from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from jose import JWTError, jwt
 import bcrypt
 from pydantic import BaseModel, Field
+from database import SessionLocal, Rider, Application
+from sqlalchemy.orm import Session
 
 warnings.filterwarnings("ignore")
 
@@ -157,6 +159,13 @@ XGB_WEIGHT   = model_config["xgb_weight"]
 LGB_WEIGHT   = model_config["lgb_weight"]
 
 print(f"✅ Models loaded — {len(FEATURE_COLS)} features")
+
+def get_db():
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
 
 
 # ─────────────────────────────────────────────
@@ -440,6 +449,130 @@ def validate_only(
             detail=f"Validation error: {str(e)}",
         )
 
+@app.post("/applications")
+def save_application(
+    payload: dict,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+):
+    """Save a scored application and upsert the rider profile."""
+    nid = str(payload.get("national_id", "")).strip()
+    if not nid:
+        raise HTTPException(status_code=422, detail="national_id is required")
+
+    rec = payload.get("recommendation") or {}
+    scoring = payload.get("scoring") or {}
+
+    rider = db.get(Rider, nid)
+    if not rider:
+        rider = Rider(national_id=nid, full_name=payload.get("rider_name", ""))
+        db.add(rider)
+    rider.full_name               = payload.get("rider_name", rider.full_name)
+    rider.phone_number            = payload.get("phone_number")
+    rider.rider_segment           = payload.get("rider_segment")
+    rider.bike_ownership          = payload.get("bike_ownership")
+    rider.is_sacco_member         = payload.get("is_sacco_member", 0)
+    rider.sacco_tenure_months     = payload.get("sacco_tenure_months", 0)
+    rider.sacco_contribution_rate = payload.get("sacco_contribution_rate", 0)
+    rider.total_loans_taken       = payload.get("total_loans_taken", 0)
+    rider.on_time_repayment_rate  = payload.get("on_time_repayment_rate", 0.75)
+    rider.ever_defaulted          = payload.get("ever_defaulted", 0)
+    rider.active_digital_loans    = payload.get("active_digital_loans", 0)
+
+    app_row = Application(
+        id=f"APP-{int(datetime.utcnow().timestamp() * 1000)}",
+        national_id=nid,
+        sacco_id=current_user["sacco_id"],
+        scored_by=current_user["username"],
+        rider_name=payload.get("rider_name"),
+        rider_segment=payload.get("rider_segment"),
+        requested_amount=payload.get("requested_amount"),
+        requested_term_days=payload.get("requested_term_days"),
+        avg_daily_income=payload.get("avg_daily_income"),
+        decision=payload.get("decision"),
+        pd_score=scoring.get("pd_score"),
+        recommended_amount=rec.get("recommended_amount"),
+        recommended_term_days=rec.get("recommended_term_days"),
+        daily_repayment=rec.get("daily_repayment"),
+        result_json=payload,
+    )
+    db.add(app_row)
+    db.commit()
+    return {"id": app_row.id}
+
+
+@app.get("/applications")
+def list_applications(
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+):
+    rows = (
+        db.query(Application)
+        .filter(Application.sacco_id == current_user["sacco_id"])
+        .order_by(Application.submitted_at.desc())
+        .all()
+    )
+    return [
+        {
+            **(r.result_json or {}),
+            "id": r.id,
+            "national_id": r.national_id,
+            "submitted_at": r.submitted_at.isoformat() + "Z",
+            "officer_decision": r.officer_decision,
+            "officer_decided_by": r.officer_decided_by,
+        }
+        for r in rows
+    ]
+
+
+class OverrideRequest(BaseModel):
+    officer_decision: Optional[str] = None   # "APPROVED", "DECLINED" or null to revert
+
+
+@app.patch("/applications/{app_id}")
+def override_application(
+    app_id: str,
+    body: OverrideRequest,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+):
+    row = db.get(Application, app_id)
+    if not row or row.sacco_id != current_user["sacco_id"]:
+        raise HTTPException(status_code=404, detail="Application not found")
+    if body.officer_decision not in (None, "APPROVED", "DECLINED"):
+        raise HTTPException(status_code=422, detail="Invalid decision")
+    row.officer_decision   = body.officer_decision
+    row.officer_decided_by = current_user["username"] if body.officer_decision else None
+    row.officer_decided_at = datetime.utcnow() if body.officer_decision else None
+    db.commit()
+    return {"id": row.id, "officer_decision": row.officer_decision}
+
+
+@app.get("/riders/{national_id}")
+def get_rider(
+    national_id: str,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+):
+    rider = db.get(Rider, national_id.strip())
+    if not rider:
+        raise HTTPException(status_code=404, detail="Rider not found")
+    count = db.query(Application).filter(Application.national_id == rider.national_id).count()
+    return {
+        "national_id": rider.national_id,
+        "full_name": rider.full_name,
+        "phone_number": rider.phone_number,
+        "rider_segment": rider.rider_segment,
+        "bike_ownership": rider.bike_ownership,
+        "is_sacco_member": rider.is_sacco_member,
+        "sacco_tenure_months": rider.sacco_tenure_months,
+        "sacco_contribution_rate": rider.sacco_contribution_rate,
+        "total_loans_taken": rider.total_loans_taken,
+        "on_time_repayment_rate": rider.on_time_repayment_rate,
+        "ever_defaulted": rider.ever_defaulted,
+        "active_digital_loans": rider.active_digital_loans,
+        "loan_count": count,
+    }
 
 @app.get("/me")
 def get_me(current_user: dict = Depends(get_current_user)):
