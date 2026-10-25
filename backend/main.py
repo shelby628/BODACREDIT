@@ -47,7 +47,7 @@ ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 8   # 8-hour sessions — one working day
 
 # Allowed frontend origin. Set FRONTEND_URL in Railway env vars to your Vercel URL.
 FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:5173")
-
+IS_PROD = os.getenv("ENV", "dev") == "prod"
 
 # ─────────────────────────────────────────────
 # APP SETUP
@@ -325,12 +325,13 @@ def login(response: Response, form_data: OAuth2PasswordRequestForm = Depends()):
     })
 
     # Set token as httpOnly cookie instead of returning it in body
+    
     response.set_cookie(
         key="bodacredit_token",
         value=token,
         httponly=True,        # JS cannot read this
-        secure=True,          # HTTPS only
-        samesite="none",       # CSRF protection
+        secure=IS_PROD,          # HTTPS only
+        samesite="none" if IS_PROD else "lax",     # CSRF protection
         max_age=60 * 60 * 8,  # 8 hours
     )
 

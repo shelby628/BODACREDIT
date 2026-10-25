@@ -1,10 +1,10 @@
 import { useState, Component, useEffect } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useLoanContext } from "../context/LoanContext";
-import { getRiderByID, getAllLoans } from "../utils/loanStore";
+import { fetchRider } from "../utils/api";
 import { useAuth } from "../context/AuthContext";
 
-const API_URL = "https://bodacredit.onrender.com";
+const API_URL = import.meta.env.VITE_API_URL;
 
 // ── Error Boundary ─────────────────────────────────────────────────────────
 class ErrorBoundary extends Component {
@@ -142,7 +142,7 @@ export default function NewApplication() {
   const [statementText, setStatementText] = useState("");
   const [parsingStatement, setParsingStatement] = useState(false);
   const [parseError, setParseError] = useState(null);
-  const { addApplication } = useLoanContext();
+  const { addApplication, applications } = useLoanContext();
 
   // API health check
   useEffect(() => {
@@ -153,41 +153,43 @@ export default function NewApplication() {
   }, []);
 
   // ── RETURNING RIDER DETECTION ──────────────────────────────────────────
-  useEffect(() => {
-    const check = async () => {
-      const nationalId = formData.national_id.trim();
-      if (nationalId.length >= 6) {
-        const existingRider = getRiderByID(nationalId);
-        if (existingRider) {
-          const allLoans = getAllLoans();
-          const riderLoans = allLoans.filter(
-            (l) => l.national_id === nationalId || l.rider_id?.includes(nationalId)
-          );
-          setReturningRider({ profile: existingRider, loanCount: riderLoans.length, previousLoans: riderLoans });
-          setFormData((prev) => ({
-            ...prev,
-            full_name:               existingRider.full_name               || prev.full_name,
-            phone_number:            existingRider.phone_number            || prev.phone_number,
-            rider_segment:           existingRider.rider_segment           || prev.rider_segment,
-            bike_ownership:          existingRider.bike_ownership          || prev.bike_ownership,
-            total_loans_taken:       String((existingRider.total_loans_taken || 0) + 1),
-            on_time_repayment_rate:  String(existingRider.on_time_repayment_rate || "0.75"),
-            ever_defaulted:          String(existingRider.ever_defaulted || "0"),
-            active_digital_loans:    String(existingRider.active_digital_loans || "0"),
-            is_sacco_member:         String(existingRider.is_sacco_member || "0"),
-            sacco_tenure_months:     String(existingRider.sacco_tenure_months || "0"),
-            sacco_contribution_rate: String(existingRider.sacco_contribution_rate || "0"),
-          }));
-        } else {
-          setReturningRider(null);
-        }
-      } else {
-        setReturningRider(null);
-      }
-    };
-    const t = setTimeout(check, 500);
-    return () => clearTimeout(t);
-  }, [formData.national_id]);
+ useEffect(() => {
+  let cancelled = false;
+  const check = async () => {
+    const nationalId = formData.national_id.trim();
+    if (nationalId.length < 7) { setReturningRider(null); return; }
+    try {
+      const existingRider = await fetchRider(nationalId);
+      if (cancelled) return;
+      if (!existingRider) { setReturningRider(null); return; }
+
+      const riderLoans = applications.filter((l) => l.national_id === nationalId);
+      setReturningRider({
+        profile: existingRider,
+        loanCount: existingRider.loan_count,
+        previousLoans: riderLoans,
+      });
+      setFormData((prev) => ({
+        ...prev,
+        full_name:               existingRider.full_name               || prev.full_name,
+        phone_number:            existingRider.phone_number            || prev.phone_number,
+        rider_segment:           existingRider.rider_segment           || prev.rider_segment,
+        bike_ownership:          existingRider.bike_ownership          || prev.bike_ownership,
+        total_loans_taken:       String((existingRider.total_loans_taken || 0) + 1),
+        on_time_repayment_rate:  String(existingRider.on_time_repayment_rate || "0.75"),
+        ever_defaulted:          String(existingRider.ever_defaulted || "0"),
+        active_digital_loans:    String(existingRider.active_digital_loans || "0"),
+        is_sacco_member:         String(existingRider.is_sacco_member || "0"),
+        sacco_tenure_months:     String(existingRider.sacco_tenure_months || "0"),
+        sacco_contribution_rate: String(existingRider.sacco_contribution_rate || "0"),
+      }));
+    } catch (e) {
+      console.error("Rider lookup failed:", e);
+    }
+  };
+  const t = setTimeout(check, 500);
+  return () => { cancelled = true; clearTimeout(t); };
+}, [formData.national_id]);
   
 
   const handleChange = (e) => {
@@ -347,7 +349,7 @@ const handleParseStatement = async () => {
           : data.detail ?? "Scoring failed. Check FastAPI server.";
         setError(msg);
       } else {
-        addApplication({
+        const savedId = await addApplication({
           applied_at:              new Date().toISOString(),
           national_id:             formData.national_id,
           rider_name:              payload.rider_name,
@@ -374,6 +376,9 @@ const handleParseStatement = async () => {
           active_digital_loans:    payload.active_digital_loans,
           is_returning_rider:      !!returningRider,
         });
+        if (!savedId) {
+  setError("Scored, but the application could not be saved. Check your connection and tell your admin.");
+}
         setResult(data);
         setStep(5);
       }
