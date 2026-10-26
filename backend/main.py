@@ -480,6 +480,7 @@ def save_application(
     rider.ever_defaulted          = payload.get("ever_defaulted", 0)
     rider.active_digital_loans    = payload.get("active_digital_loans", 0)
 
+    db.flush() 
     app_row = Application(
         id=f"APP-{int(datetime.utcnow().timestamp() * 1000)}",
         national_id=nid,
